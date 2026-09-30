@@ -185,8 +185,8 @@ namespace DiscordGameSpoofer
 
         private async Task SetupApplicationAsync()
         {
-            try
-            {
+            /*try
+            {*/
                 log("Setting up application folders...");
 
                 // Setup the bin path
@@ -208,7 +208,7 @@ namespace DiscordGameSpoofer
                 bool justDownloaded = false; // need a better solution, it'll work for now
 
                 blankWindowPath = Path.Combine(binPath, "blank.exe");
-                if (!File.Exists(blankWindowPath))
+                /*if (!File.Exists(blankWindowPath))
                 {
                     justDownloaded = true;
                     log("blank.exe not found. Downloading...");
@@ -262,7 +262,7 @@ namespace DiscordGameSpoofer
             {
                 log($"Failed during setup: {ex.Message}");
                 MessageBox.Show("Failed during setup: " + ex.Message);
-            }
+            }*/
         }
 
         private void searchBox_TextChanged(object sender, EventArgs e)
