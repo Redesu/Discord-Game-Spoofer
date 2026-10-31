@@ -3,6 +3,7 @@
     internal class Config
     {
         public static string version = "0.0.1";
+        public static int autoStopMinutes = 20;
         public static string versionCheckUrl = "https://api.github.com/repos/devAxri/Discord-Game-Spoofer/releases/latest";
         public static string blankDownloadUrl = "https://github.com/devAxri/blank_window/releases/latest/download/blank_window.exe";
         public static string blankAPIUrl = "https://api.github.com/repos/devAxri/blank_window/releases/latest";

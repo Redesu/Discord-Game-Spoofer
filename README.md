@@ -12,6 +12,14 @@ A simple Windows utility for spoofing Discord-detectable games, mainly built to 
 * Search through Discord-detectable games
 * Start and stop spoofed game processes
 * Track how long each spoofed game has been running
+* Queue multiple games and run them one after another
+* Reorder, remove, or clear queued games
+* Optional auto-stop after 20 minutes (queue games always auto-stop)
+* Add custom applications that are not in the Discord list
+* Spoof processes show a small visible window so Discord can detect them
+* Place a game's spoof executable in its real install folder per game
+* Optional Steam `.acf` manifest so quests that verify Steam installs can detect the game
+* Every generated spoof exe gets a different random file size
 * View executable details for selected games
 * Built-in update check
 * Simple Windows Forms interface
@@ -22,13 +30,65 @@ Grab the latest build from the [Releases](https://github.com/devAxri/Discord-Gam
 
 ## Usage
 
+### Single game
+
 1. Open Discord Game Spoofer.
 2. Wait for the detectable games list to load.
 3. Search for the game required by the Discord Quest.
 4. Select the game.
 5. Click **Start**.
-6. Keep it running until the quest requirement is completed.
-7. Click **Stop** when you are done.
+6. A small **Now spoofing** window opens. Keep it visible; Discord ignores hidden processes and processes without a window.
+7. Keep it running until the quest requirement is completed.
+8. Click **Stop** when you are done.
+
+Check **Auto stop after 20 min** if you want the game to close automatically. Queue games always stop after 20 minutes so the next game can start.
+
+### Install folder
+
+Some quests check that the game is running from its install folder. To change where the spoof executable is created:
+
+1. Select the game.
+2. Click **Set Install Folder...** and choose a folder, for example the game's real install folder.
+3. Click **Use Default Folder** to go back to `bin\games`.
+
+The executable is created at `<install folder>\<executable path>`. For example, if Discord lists `aces.exe`, it is created as `<install folder>\aces.exe`. Existing files that were not created by this app are never overwritten. Install folders are saved per game in `bin/game_folders.json`.
+
+Windows may deny writes to protected folders such as `C:\Program Files`. In that case, choose a folder you can write to or run the app as administrator.
+
+### Steam manifests
+
+Some Discord Quests now check that the game is installed through Steam, not just that an executable is running. Discord Game Spoofer can create a matching Steam manifest for games that have a Steam app ID in Discord's game list.
+
+**Steam .acf manifest** is enabled by default when Steam is detected and the selected game has a Steam app ID. When it is on:
+
+1. The spoof executable is created in `<Steam library>\steamapps\common\<installdir>\<executable path>`.
+2. An `appmanifest_<appid>.acf` file is created in `<Steam library>\steamapps`.
+3. The official `installdir` is read from the SteamCMD API when possible, so the folder name matches a real install.
+
+The checkbox is disabled for games that do not have a Steam app ID. If you set a custom install folder, Steam mode still takes precedence while the checkbox is ticked; untick it to use the custom folder instead.
+
+The app never overwrites an existing `appmanifest_*.acf` file. Manifests created by the app are recorded in `bin/steam_manifests.json` and removed when the app closes, but only if they are still unchanged. Real Steam installs are left alone. Steam may need to be restarted before its own library view notices a new manifest; Discord reads the files directly.
+
+### Queue
+
+1. Select a game and click **Add to Queue**.
+2. Repeat for every game you want to run.
+3. Use **Move Up**, **Move Down**, **Remove**, or **Clear** to manage the queue.
+4. Click **Start Queue**.
+
+Each queued game runs for 20 minutes, then closes and starts the next one. Clicking **Stop** while a queued game is running pauses the queue; click **Start Queue** to continue with the remaining games. **Clear** removes the waiting games but lets the current game finish normally.
+
+### Custom application
+
+If a game is not in the list:
+
+1. Click **Custom App...**.
+2. Enter a name for the app.
+3. Enter the executable name, for example `game.exe`.
+4. Enter the folder to create it in under `bin\games`, for example `Game\bin`.
+5. Click **Add**.
+
+The custom app appears in the games list and can be started or queued like any other game. Custom apps are saved in `bin/custom_apps.json`.
 
 ## Notes
 

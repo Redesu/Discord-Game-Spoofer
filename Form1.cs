@@ -1,23 +1,65 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+using Microsoft.Win32;
 
 namespace DiscordGameSpoofer
 {
     public partial class Form1 : Form
     {
         private List<DiscordDetectableApplication> allGames = new List<DiscordDetectableApplication>();
+        private List<DiscordDetectableApplication> customGames = new List<DiscordDetectableApplication>();
+        private List<DiscordDetectableApplication> gameQueue = new List<DiscordDetectableApplication>();
         private DiscordDetectableApplication? selectedGame = null;
-        private List<DateTime> gameStartTimes = new List<DateTime>();
+        private List<RunningGame> runningGames = new List<RunningGame>();
         private System.Windows.Forms.Timer gameTimer = new System.Windows.Forms.Timer();
-        string appPath = AppContext.BaseDirectory;
-        List<Process> procList = new List<Process>();
+        private RunningGame? activeQueueGame = null;
+        private bool queueRunning = false;
 
+        string appPath = AppContext.BaseDirectory;
         string gamePath = "";
         string blankWindowPath = "";
+        string customAppsPath = "";
+        string gameFoldersPath = "";
+        string steamAppsCachePath = "";
+        string steamManifestsPath = "";
+
+        private Dictionary<string, string> gameFolders = new(StringComparer.OrdinalIgnoreCase);
+        private List<SteamLibrary> steamLibraries = new();
+        private Dictionary<string, string> steamInstallDirs = new(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, string> steamManifests = new(StringComparer.OrdinalIgnoreCase);
+        private bool startInProgress = false;
+
+        // Appended to every generated spoof host so we can tell our files apart from
+        // real game executables and refuse to overwrite anything we did not create.
+        private static readonly byte[] HostTrailer = Encoding.ASCII.GetBytes("DGSHOST1");
 
         bool logShown = false;
+
+        private class SteamLibrary
+        {
+            public string RootPath { get; set; } = "";
+            public string SteamAppsPath => Path.Combine(RootPath, "steamapps");
+            public string CommonPath => Path.Combine(SteamAppsPath, "common");
+        }
+
+        private class RunningGame
+        {
+            public Process Process { get; set; } = null!;
+            public string Name { get; set; } = "";
+            public string GameId { get; set; } = "";
+            public DateTime StartTime { get; set; }
+            public bool IsQueueGame { get; set; }
+
+            public override string ToString()
+            {
+                return Name ?? "";
+            }
+        }
 
         // Move these to interfaces folder
         public class DiscordDetectableApplication
@@ -31,10 +73,22 @@ namespace DiscordGameSpoofer
             [JsonPropertyName("executables")]
             public List<DiscordExecutable> Executables { get; set; } = new();
 
+            [JsonPropertyName("third_party_skus")]
+            public List<DiscordThirdPartySku> ThirdPartySkus { get; set; } = new();
+
             public override string ToString()
             {
-                return Name;
+                return Name ?? "";
             }
+        }
+
+        public class DiscordThirdPartySku
+        {
+            [JsonPropertyName("distributor")]
+            public string Distributor { get; set; } = "";
+
+            [JsonPropertyName("id")]
+            public string Id { get; set; } = "";
         }
 
         public class DiscordExecutable
@@ -58,48 +112,104 @@ namespace DiscordGameSpoofer
             gamesList.Items.Add("take a second.");
             gamesList.Items.Add("UI may lag.");
 
+            addToQueueButton.Enabled = false;
+            startQueueButton.Enabled = false;
+            setInstallFolderButton.Enabled = false;
+            defaultInstallFolderButton.Enabled = false;
+            UpdateQueueButtons();
+
             log("Welcome to Discord Game Spoofer");
             log(Config.githubUrl);
             logBox.Hide();
-
-            _ = InitializeAsync();
 
             detailsBox.AppendText("Make a selection on the left to display details.\nInterface may lag while filtering, it has to check through 23.000 games.");
 
             gameTimer.Interval = 1000;
             gameTimer.Tick += gameTimer_Tick;
             gameTimer.Start();
+
+            FormClosing += Form1_FormClosing;
+
+            _ = InitializeAsync();
         }
 
         private async Task InitializeAsync()
         {
             // This is just incase
             startButton.Enabled = false;
+            startQueueButton.Enabled = false;
+            addToQueueButton.Enabled = false;
 
             await CheckVersion();
             await SetupApplicationAsync();
             await LoadDetectableGamesAsync();
+            LoadCustomApps();
+            RefreshGamesList();
 
-            startButton.Enabled = true;
+            bool canStart = IsSpoofHostAvailable();
+            startButton.Enabled = canStart;
+            UpdateQueueButtons();
+
+            if (!canStart)
+            {
+                log("Start is disabled because the spoof host could not be located. Restart the app or check the log for details.");
+            }
         }
 
-        private void gameTimer_Tick(object? sender, EventArgs e)
+        private async void gameTimer_Tick(object? sender, EventArgs e)
         {
-            for (int i = runningGamesTime.Items.Count - 1; i >= 0 && i < gameStartTimes.Count; i--)
+            if (IsDisposed)
+                return;
+
+            TimeSpan autoStopAfter = TimeSpan.FromMinutes(Config.autoStopMinutes);
+
+            for (int i = runningGames.Count - 1; i >= 0; i--)
             {
-                TimeSpan elapsed = DateTime.Now - gameStartTimes[i];
+                if (i >= runningGamesTime.Items.Count)
+                    continue;
+
+                RunningGame game = runningGames[i];
+                TimeSpan elapsed = DateTime.Now - game.StartTime;
                 runningGamesTime.Items[i] = elapsed.ToString(@"hh\:mm\:ss");
 
-                Process proc = procList[i];
-                if (proc.HasExited)
+                bool exited;
+                try
                 {
-                    string gameName = runningGamesList.Items[i].ToString() ?? "Unknown game";
-                    procList.RemoveAt(i);
-                    runningGamesList.Items.RemoveAt(i);
-                    runningGamesTime.Items.RemoveAt(i);
-                    gameStartTimes.RemoveAt(i);
+                    exited = game.Process.HasExited;
+                }
+                catch
+                {
+                    exited = true;
+                }
 
+                // Queue games always auto stop so the queue can move on.
+                bool autoStop = (game.IsQueueGame || autoStopCheckBox.Checked) && elapsed >= autoStopAfter;
+
+                if (!exited && !autoStop)
+                    continue;
+
+                bool wasActiveQueueGame = ReferenceEquals(game, activeQueueGame);
+                string gameName = game.Name;
+
+                RemoveRunningGame(i, kill: autoStop && !exited);
+
+                if (autoStop && !exited)
+                {
+                    log($"Auto-stopped {gameName} after {Config.autoStopMinutes} minutes.");
+                }
+                else
+                {
                     log($"Spoof process exited for {gameName}.");
+                }
+
+                if (wasActiveQueueGame)
+                {
+                    activeQueueGame = null;
+
+                    if (queueRunning)
+                    {
+                        await StartNextQueuedGameAsync();
+                    }
                 }
             }
         }
@@ -148,6 +258,7 @@ namespace DiscordGameSpoofer
                 log("Loading Discord detectable games...");
 
                 using HttpClient client = new HttpClient();
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("DiscordGameSpoofer");
 
                 string json = await client.GetStringAsync(Config.discordAPIUrl);
 
@@ -156,140 +267,794 @@ namespace DiscordGameSpoofer
 
                 gamesList.Items.Clear();
                 allGames.Clear();
+                selectedGame = null;
 
                 if (games == null)
                 {
                     log("No games were returned from the Discord API.");
+                    RefreshGamesList();
                     return;
                 }
-                    
-                games.Sort((a, b) => a.Name.CompareTo(b.Name));
+
+                games.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
 
                 foreach (DiscordDetectableApplication game in games)
                 {
-                    if (game.Executables.Count != 0)
+                    if (game.Executables != null && game.Executables.Count != 0)
                     {
                         allGames.Add(game);
-                        gamesList.Items.Add(game);
                     }
                 }
 
-                log($"Loaded {games.Count} detectable games.");
+                log($"Loaded {allGames.Count} detectable games.");
+                RefreshGamesList();
             }
             catch (Exception ex)
             {
                 log($"Failed to load games: {ex.Message}");
+                RefreshGamesList();
                 MessageBox.Show("Failed to load games: " + ex.Message);
             }
         }
 
         private async Task SetupApplicationAsync()
         {
-            /*try
-            {*/
+            try
+            {
                 log("Setting up application folders...");
 
                 // Setup the bin path
                 string binPath = Path.Combine(appPath, "bin");
                 gamePath = Path.Combine(binPath, "games");
-                if (!Path.Exists(binPath))
+                customAppsPath = Path.Combine(binPath, "custom_apps.json");
+                gameFoldersPath = Path.Combine(binPath, "game_folders.json");
+                steamAppsCachePath = Path.Combine(binPath, "steam_apps.json");
+                steamManifestsPath = Path.Combine(binPath, "steam_manifests.json");
+
+                if (!Directory.Exists(binPath))
                 {
                     Directory.CreateDirectory(binPath);
                     log($"Created bin folder: {binPath}");
                 }
-                
-                if (!Path.Exists(gamePath))
+
+                if (!Directory.Exists(gamePath))
                 {
                     Directory.CreateDirectory(gamePath);
                     log($"Created games folder: {gamePath}");
                 }
 
-                string sha256 = "";
-                bool justDownloaded = false; // need a better solution, it'll work for now
+                LoadGameFolders();
+                LoadSteamAppCache();
+                LoadSteamManifests();
+                LoadSteamLibraries();
 
                 blankWindowPath = Path.Combine(binPath, "blank.exe");
-                /*if (!File.Exists(blankWindowPath))
+
+                if (!File.Exists(blankWindowPath))
                 {
-                    justDownloaded = true;
-                    log("blank.exe not found. Downloading...");
-
-                    // Last time I used C#, we used a WebClient but apparently it's deprecated
-                    using var client = new HttpClient();
-
-                    await using var input = await client.GetStreamAsync(Config.blankDownloadUrl);
-                    await using var output = File.Create(blankWindowPath);
-
-                    await input.CopyToAsync(output);
-
-                    client.DefaultRequestHeaders.UserAgent.ParseAdd("DiscordGameSpoofer"); // Got HTTP 403 without a header
-                    using JsonDocument jsonDoc = JsonDocument.Parse(await client.GetStringAsync(Config.blankAPIUrl));
-                    JsonElement blankJson = jsonDoc.RootElement.GetProperty("assets")[0];
-                    sha256 = blankJson.GetProperty("digest").ToString().Replace("sha256:", "");
-                }
-
-                if (justDownloaded)
-                {
-                    using FileStream stream = File.OpenRead(blankWindowPath);
-                    byte[] hashBytes = SHA256.HashData(stream);
-                    string downloadedBlankHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
-
-                    if (downloadedBlankHash == sha256)
+                    try
                     {
+                        log("blank.exe not found. Downloading...");
+
+                        // Last time I used C#, we used a WebClient but apparently it's deprecated
+                        using var client = new HttpClient();
+                        client.DefaultRequestHeaders.UserAgent.ParseAdd("DiscordGameSpoofer"); // Got HTTP 403 without a header
+
+                        await using (var input = await client.GetStreamAsync(Config.blankDownloadUrl))
+                        await using (var output = File.Create(blankWindowPath))
+                        {
+                            await input.CopyToAsync(output);
+                        }
+
+                        using JsonDocument jsonDoc = JsonDocument.Parse(await client.GetStringAsync(Config.blankAPIUrl));
+                        JsonElement asset = jsonDoc.RootElement.GetProperty("assets").EnumerateArray()
+                            .First(a => a.GetProperty("name").ToString() == "blank_window.exe");
+                        string sha256 = asset.GetProperty("digest").ToString().Replace("sha256:", "");
+
+                        string downloadedBlankHash;
+                        using (FileStream stream = File.OpenRead(blankWindowPath))
+                        {
+                            byte[] hashBytes = SHA256.HashData(stream);
+                            downloadedBlankHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
+                        }
+
+                        if (downloadedBlankHash != sha256)
+                        {
+                            log("SHA256 check on blank failed, deleting file.");
+
+                            try
+                            {
+                                if (File.Exists(blankWindowPath))
+                                    File.Delete(blankWindowPath);
+                            }
+                            catch (Exception ex)
+                            {
+                                log($"Failed to delete invalid blank.exe: {ex.Message}");
+                            }
+
+                            MessageBox.Show("blank.exe failed the SHA256 security check.\n\nThe downloaded file did not match the expected Github release hash, so it was deleted.\n\nPlease try again later. If this keeps happening, check the GitHub release or open an issue.");
+                            return;
+                        }
+
                         log("blank.exe downloaded and verified successfully.");
-                        log("Application setup complete.");
                     }
-                    else
+                    catch
                     {
-                        log("SHA256 check on blank failed, deleting file.");
-
+                        // Do not leave a broken download behind.
                         try
                         {
                             if (File.Exists(blankWindowPath))
                                 File.Delete(blankWindowPath);
                         }
-                        catch (Exception ex)
+                        catch
                         {
-                            log($"Failed to delete invalid blank.exe: {ex.Message}");
                         }
 
-                        MessageBox.Show("blank.exe failed the SHA256 security check.\n\nThe downloaded file did not match the expected Github release hash, so it was deleted.\n\nPlease try again later. If this keeps happening, check the GitHub release or open an issue.");
-                        Application.Exit();
+                        throw;
                     }
                 }
-            }
+                else
+                {
+                    log("blank.exe found.");
+                }
 
+                log("Application setup complete.");
+            }
             catch (Exception ex)
             {
                 log($"Failed during setup: {ex.Message}");
                 MessageBox.Show("Failed during setup: " + ex.Message);
-            }*/
+            }
         }
 
-        private void searchBox_TextChanged(object sender, EventArgs e)
+        private void LoadCustomApps()
         {
+            try
+            {
+                if (string.IsNullOrEmpty(customAppsPath) || !File.Exists(customAppsPath))
+                    return;
+
+                string json = File.ReadAllText(customAppsPath);
+                List<DiscordDetectableApplication>? apps =
+                    JsonSerializer.Deserialize<List<DiscordDetectableApplication>>(json);
+
+                if (apps == null)
+                    return;
+
+                foreach (DiscordDetectableApplication app in apps)
+                {
+                    if (app.Executables == null || app.Executables.Count == 0)
+                        continue;
+
+                    if (string.IsNullOrWhiteSpace(app.Id))
+                        app.Id = "custom-" + Guid.NewGuid().ToString("N");
+
+                    if (string.IsNullOrWhiteSpace(app.Name))
+                        app.Name = "Custom application";
+
+                    if (allGames.Any(g => g.Id == app.Id))
+                        continue;
+
+                    customGames.Add(app);
+                    allGames.Add(app);
+                }
+
+                log($"Loaded {customGames.Count} custom application(s).");
+            }
+            catch (Exception ex)
+            {
+                log($"Failed to load custom apps: {ex.Message}");
+            }
+        }
+
+        private void SaveCustomApps()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(customAppsPath))
+                    return;
+
+                string json = JsonSerializer.Serialize(customGames, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(customAppsPath, json);
+            }
+            catch (Exception ex)
+            {
+                log($"Failed to save custom apps: {ex.Message}");
+            }
+        }
+
+        private void LoadGameFolders()
+        {
+            gameFolders.Clear();
+
+            try
+            {
+                if (string.IsNullOrEmpty(gameFoldersPath) || !File.Exists(gameFoldersPath))
+                    return;
+
+                string json = File.ReadAllText(gameFoldersPath);
+                Dictionary<string, string>? folders =
+                    JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+
+                if (folders == null)
+                    return;
+
+                foreach (KeyValuePair<string, string> pair in folders)
+                {
+                    if (string.IsNullOrWhiteSpace(pair.Key) || string.IsNullOrWhiteSpace(pair.Value))
+                        continue;
+
+                    gameFolders[pair.Key] = pair.Value;
+                }
+
+                log($"Loaded {gameFolders.Count} custom install folder(s).");
+            }
+            catch (Exception ex)
+            {
+                log($"Failed to load install folders: {ex.Message}");
+            }
+        }
+
+        private void SaveGameFolders()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(gameFoldersPath))
+                    return;
+
+                string json = JsonSerializer.Serialize(gameFolders, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(gameFoldersPath, json);
+            }
+            catch (Exception ex)
+            {
+                log($"Failed to save install folders: {ex.Message}");
+            }
+        }
+
+        private bool HasCustomFolder(DiscordDetectableApplication game)
+        {
+            return game != null
+                && !string.IsNullOrWhiteSpace(game.Id)
+                && gameFolders.ContainsKey(game.Id);
+        }
+
+        private string GetGameBaseFolder(DiscordDetectableApplication game)
+        {
+            if (game != null
+                && !string.IsNullOrWhiteSpace(game.Id)
+                && gameFolders.TryGetValue(game.Id, out string? folder)
+                && !string.IsNullOrWhiteSpace(folder))
+            {
+                return folder;
+            }
+
+            return gamePath;
+        }
+
+        private void LoadSteamLibraries()
+        {
+            steamLibraries.Clear();
+
+            string? root = FindSteamRoot();
+            if (root == null)
+            {
+                log("Steam was not detected. Steam manifests are disabled.");
+                return;
+            }
+
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            AddSteamLibrary(root, seen);
+
+            string libraryFoldersPath = Path.Combine(root, "steamapps", "libraryfolders.vdf");
+            if (File.Exists(libraryFoldersPath))
+            {
+                try
+                {
+                    string vdf = File.ReadAllText(libraryFoldersPath);
+                    foreach (Match match in Regex.Matches(vdf, "\"path\"\\s+\"([^\"]+)\""))
+                    {
+                        string path = match.Groups[1].Value.Replace("\\\\", "\\");
+                        AddSteamLibrary(path, seen);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    log($"Failed to read Steam library folders: {ex.Message}");
+                }
+            }
+
+            if (steamLibraries.Count == 0)
+            {
+                log("Steam was not detected. Steam manifests are disabled.");
+                return;
+            }
+
+            foreach (SteamLibrary library in steamLibraries)
+            {
+                log($"Steam library found: {library.RootPath}");
+            }
+        }
+
+        private static string? FindSteamRoot()
+        {
+            List<string> candidates = new List<string>();
+
+            try
+            {
+                using RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
+                if (key?.GetValue("SteamPath") is string steamPath && !string.IsNullOrWhiteSpace(steamPath))
+                    candidates.Add(steamPath);
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Valve\Steam");
+                if (key?.GetValue("InstallPath") is string installPath && !string.IsNullOrWhiteSpace(installPath))
+                    candidates.Add(installPath);
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Valve\Steam");
+                if (key?.GetValue("InstallPath") is string installPath && !string.IsNullOrWhiteSpace(installPath))
+                    candidates.Add(installPath);
+            }
+            catch
+            {
+            }
+
+            string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            if (!string.IsNullOrWhiteSpace(programFilesX86))
+                candidates.Add(Path.Combine(programFilesX86, "Steam"));
+
+            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            if (!string.IsNullOrWhiteSpace(programFiles))
+                candidates.Add(Path.Combine(programFiles, "Steam"));
+
+            foreach (string candidate in candidates)
+            {
+                try
+                {
+                    string fullPath = Path.GetFullPath(candidate.Replace('/', '\\'));
+                    if (Directory.Exists(Path.Combine(fullPath, "steamapps")))
+                        return fullPath;
+                }
+                catch
+                {
+                }
+            }
+
+            return null;
+        }
+
+        private void AddSteamLibrary(string path, HashSet<string> seen)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(path.Trim().TrimEnd('\\', '/'));
+                if (!Directory.Exists(Path.Combine(fullPath, "steamapps")))
+                    return;
+
+                if (!seen.Add(fullPath))
+                    return;
+
+                steamLibraries.Add(new SteamLibrary { RootPath = fullPath });
+            }
+            catch
+            {
+            }
+        }
+
+        private static bool CanWriteToDirectory(string directory)
+        {
+            try
+            {
+                Directory.CreateDirectory(directory);
+                string probe = Path.Combine(directory, ".dgs_write_test_" + Guid.NewGuid().ToString("N"));
+
+                using (File.Create(probe))
+                {
+                }
+
+                File.Delete(probe);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string? GetSteamAppId(DiscordDetectableApplication game)
+        {
+            if (game?.ThirdPartySkus == null)
+                return null;
+
+            foreach (DiscordThirdPartySku sku in game.ThirdPartySkus)
+            {
+                if (string.Equals(sku.Distributor, "steam", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(sku.Id)
+                    && sku.Id.Trim().All(char.IsDigit))
+                {
+                    return sku.Id.Trim();
+                }
+            }
+
+            return null;
+        }
+
+        private SteamLibrary? FindSteamLibraryForApp(string appId, out string? existingManifestPath)
+        {
+            existingManifestPath = null;
+
+            // Prefer a library that already has a manifest for this app. This avoids
+            // moving an existing install to another drive.
+            foreach (SteamLibrary library in steamLibraries)
+            {
+                string manifestPath = Path.Combine(library.SteamAppsPath, $"appmanifest_{appId}.acf");
+                if (File.Exists(manifestPath))
+                {
+                    existingManifestPath = manifestPath;
+                    return library;
+                }
+            }
+
+            // Otherwise use the first library we can write to.
+            foreach (SteamLibrary library in steamLibraries)
+            {
+                if (CanWriteToDirectory(library.SteamAppsPath))
+                    return library;
+            }
+
+            return null;
+        }
+
+        private async Task<string> GetSteamInstallDirAsync(string appId, string gameName, string? existingManifestPath)
+        {
+            if (!string.IsNullOrEmpty(existingManifestPath) && File.Exists(existingManifestPath))
+            {
+                string? existing = ReadAcfValue(existingManifestPath, "installdir");
+                if (IsSafeSteamInstallDir(existing))
+                    return existing!.Trim();
+            }
+
+            if (steamInstallDirs.TryGetValue(appId, out string? cached) && IsSafeSteamInstallDir(cached))
+                return cached!.Trim();
+
+            try
+            {
+                using HttpClient client = new HttpClient
+                {
+                    Timeout = TimeSpan.FromSeconds(6),
+                };
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("DiscordGameSpoofer");
+
+                string json = await client.GetStringAsync($"https://api.steamcmd.net/v1/info/{appId}");
+                using JsonDocument document = JsonDocument.Parse(json);
+
+                if (document.RootElement.TryGetProperty("data", out JsonElement data)
+                    && data.TryGetProperty(appId, out JsonElement app)
+                    && app.TryGetProperty("config", out JsonElement config)
+                    && config.TryGetProperty("installdir", out JsonElement installDirElement)
+                    && installDirElement.ValueKind == JsonValueKind.String)
+                {
+                    string? installDir = installDirElement.GetString();
+                    if (IsSafeSteamInstallDir(installDir))
+                    {
+                        string safeInstallDir = installDir!.Trim();
+                        steamInstallDirs[appId] = safeInstallDir;
+                        SaveSteamAppCache();
+                        return safeInstallDir;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                log($"Could not fetch Steam install info for {gameName}: {ex.Message}");
+            }
+
+            string fallback = SanitizeSteamFolderName(gameName);
+            steamInstallDirs[appId] = fallback;
+            SaveSteamAppCache();
+            return fallback;
+        }
+
+        private static string? ReadAcfValue(string path, string key)
+        {
+            try
+            {
+                string text = File.ReadAllText(path);
+                Match match = Regex.Match(
+                    text,
+                    "\"" + Regex.Escape(key) + "\"\\s+\"([^\"]*)\"",
+                    RegexOptions.IgnoreCase);
+
+                return match.Success ? match.Groups[1].Value : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool IsSafeSteamInstallDir(string? installDir)
+        {
+            if (string.IsNullOrWhiteSpace(installDir))
+                return false;
+
+            string value = installDir.Trim();
+
+            if (value.Length == 0 || value == "." || value == "..")
+                return false;
+
+            if (value.Contains(".."))
+                return false;
+
+            if (value.IndexOfAny(new[] { '/', '\\', ':' }) >= 0)
+                return false;
+
+            return value.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+        }
+
+        private static string SanitizeSteamFolderName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return "Game";
+
+            string invalidChars = new string(Path.GetInvalidFileNameChars());
+            StringBuilder builder = new StringBuilder(name.Length);
+
+            foreach (char c in name)
+            {
+                if (invalidChars.IndexOf(c) >= 0 || c == '/' || c == '\\')
+                    builder.Append('_');
+                else
+                    builder.Append(c);
+            }
+
+            string result = builder.ToString().Trim().TrimEnd('.');
+            return result.Length == 0 ? "Game" : result;
+        }
+
+        private static string EscapeVdf(string value)
+        {
+            return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        }
+
+        private string CreateSteamManifest(string steamAppsPath, string appId, string gameName, string installDir)
+        {
+            string manifestPath = Path.Combine(steamAppsPath, $"appmanifest_{appId}.acf");
+
+            // Never overwrite a manifest. It may belong to a real Steam install.
+            if (File.Exists(manifestPath))
+                return manifestPath;
+
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            string content =
+                "\"AppState\"\n" +
+                "{\n" +
+                $"\t\"appid\"\t\t\"{EscapeVdf(appId)}\"\n" +
+                $"\t\"Universe\"\t\t\"1\"\n" +
+                $"\t\"name\"\t\t\"{EscapeVdf(gameName)}\"\n" +
+                $"\t\"StateFlags\"\t\t\"4\"\n" +
+                $"\t\"installdir\"\t\t\"{EscapeVdf(installDir)}\"\n" +
+                $"\t\"LastUpdated\"\t\t\"{now}\"\n" +
+                $"\t\"LastPlayed\"\t\t\"{now}\"\n" +
+                $"\t\"SizeOnDisk\"\t\t\"1000000\"\n" +
+                $"\t\"buildid\"\t\t\"12345678\"\n" +
+                $"\t\"UpdateResult\"\t\t\"0\"\n" +
+                "}\n";
+
+            File.WriteAllText(manifestPath, content, new UTF8Encoding(false));
+            steamManifests[manifestPath] = ComputeFileHash(manifestPath);
+            SaveSteamManifests();
+
+            log($"Created Steam manifest: {manifestPath}");
+            return manifestPath;
+        }
+
+        private static string ComputeFileHash(string path)
+        {
+            using FileStream stream = File.OpenRead(path);
+            return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+        }
+
+        private void LoadSteamAppCache()
+        {
+            steamInstallDirs.Clear();
+
+            try
+            {
+                if (string.IsNullOrEmpty(steamAppsCachePath) || !File.Exists(steamAppsCachePath))
+                    return;
+
+                Dictionary<string, string>? cache =
+                    JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(steamAppsCachePath));
+
+                if (cache == null)
+                    return;
+
+                foreach (KeyValuePair<string, string> pair in cache)
+                {
+                    if (!string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
+                        steamInstallDirs[pair.Key] = pair.Value;
+                }
+            }
+            catch (Exception ex)
+            {
+                log($"Failed to load Steam app cache: {ex.Message}");
+            }
+        }
+
+        private void SaveSteamAppCache()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(steamAppsCachePath))
+                    return;
+
+                string json = JsonSerializer.Serialize(steamInstallDirs, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(steamAppsCachePath, json);
+            }
+            catch (Exception ex)
+            {
+                log($"Failed to save Steam app cache: {ex.Message}");
+            }
+        }
+
+        private void LoadSteamManifests()
+        {
+            steamManifests.Clear();
+
+            try
+            {
+                if (string.IsNullOrEmpty(steamManifestsPath) || !File.Exists(steamManifestsPath))
+                    return;
+
+                Dictionary<string, string>? manifests =
+                    JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(steamManifestsPath));
+
+                if (manifests == null)
+                    return;
+
+                foreach (KeyValuePair<string, string> pair in manifests)
+                {
+                    if (!string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
+                        steamManifests[pair.Key] = pair.Value;
+                }
+            }
+            catch (Exception ex)
+            {
+                log($"Failed to load Steam manifest list: {ex.Message}");
+            }
+        }
+
+        private void SaveSteamManifests()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(steamManifestsPath))
+                    return;
+
+                string json = JsonSerializer.Serialize(steamManifests, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(steamManifestsPath, json);
+            }
+            catch (Exception ex)
+            {
+                log($"Failed to save Steam manifest list: {ex.Message}");
+            }
+        }
+
+        private void CleanupSteamManifests()
+        {
+            if (steamManifests.Count == 0)
+                return;
+
+            foreach (KeyValuePair<string, string> pair in steamManifests.ToList())
+            {
+                try
+                {
+                    if (!File.Exists(pair.Key))
+                    {
+                        steamManifests.Remove(pair.Key);
+                        continue;
+                    }
+
+                    if (string.Equals(ComputeFileHash(pair.Key), pair.Value, StringComparison.OrdinalIgnoreCase))
+                    {
+                        File.Delete(pair.Key);
+                        log($"Removed Steam manifest: {pair.Key}");
+                    }
+                    else
+                    {
+                        log($"Kept Steam manifest because it was changed: {pair.Key}");
+                    }
+
+                    steamManifests.Remove(pair.Key);
+                }
+                catch (Exception ex)
+                {
+                    log($"Failed to remove Steam manifest {pair.Key}: {ex.Message}");
+                }
+            }
+
+            SaveSteamManifests();
+        }
+
+        private void RefreshGamesList()
+        {
+            DiscordDetectableApplication? previous = selectedGame;
             string search = searchBox.Text.Trim().ToLower();
 
+            gamesList.BeginUpdate();
             gamesList.Items.Clear();
 
             foreach (DiscordDetectableApplication game in allGames)
             {
-                if (game.Name.ToLower().Contains(search))
+                string gameName = game.Name ?? "";
+                if (search.Length == 0 || gameName.ToLower().Contains(search))
                 {
                     gamesList.Items.Add(game);
                 }
             }
+
+            gamesList.EndUpdate();
+
+            if (previous != null)
+            {
+                int index = gamesList.Items.IndexOf(previous);
+                if (index >= 0)
+                {
+                    gamesList.SelectedIndex = index;
+                }
+            }
+        }
+
+        private void searchBox_TextChanged(object sender, EventArgs e)
+        {
+            RefreshGamesList();
         }
 
         private void gamesList_SelectedIndexChanged(object sender, EventArgs e)
         {
             selectedGame = gamesList.SelectedItem as DiscordDetectableApplication;
+            addToQueueButton.Enabled = selectedGame != null;
+            setInstallFolderButton.Enabled = selectedGame != null;
+            defaultInstallFolderButton.Enabled = selectedGame != null && HasCustomFolder(selectedGame);
+
+            bool hasSteamSku = selectedGame != null && GetSteamAppId(selectedGame) != null;
+            steamManifestCheckBox.Enabled = hasSteamSku && steamLibraries.Count > 0;
 
             if (selectedGame == null)
+            {
+                detailsBox.Clear();
                 return;
+            }
 
             log($"Selected game: {selectedGame.Name}");
+            ShowGameDetails();
+        }
+
+        private void ShowGameDetails()
+        {
+            if (selectedGame == null)
+            {
+                detailsBox.Clear();
+                return;
+            }
 
             detailsBox.Clear();
+
+            if (selectedGame.Id?.StartsWith("custom-", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                detailsBox.AppendText("Custom application\n\n");
+            }
 
             List<String> winGames = new List<String>();
 
@@ -302,7 +1067,7 @@ namespace DiscordGameSpoofer
 
             foreach (DiscordExecutable exe in selectedGame.Executables)
             {
-                if (exe.Os == "win32")
+                if (exe.Os == "win32" && !string.IsNullOrEmpty(exe.Name))
                 {
                     winGames.Add(exe.Name);
                 }
@@ -314,10 +1079,96 @@ namespace DiscordGameSpoofer
                 detailsBox.AppendText($" - {exe}\n");
             }
 
+            string baseFolder = GetGameBaseFolder(selectedGame);
+            detailsBox.AppendText($"\nInstall folder: {baseFolder}\n");
+            detailsBox.AppendText(HasCustomFolder(selectedGame)
+                ? " (custom folder)\n"
+                : " (default bin\\games folder)\n");
+
+            string? steamAppId = GetSteamAppId(selectedGame);
+            if (steamAppId != null)
+            {
+                detailsBox.AppendText($"\nSteam app ID: {steamAppId}\n");
+
+                if (steamLibraries.Count == 0)
+                {
+                    detailsBox.AppendText("Steam was not detected, so a manifest cannot be created.\n");
+                }
+                else if (steamManifestCheckBox.Checked)
+                {
+                    detailsBox.AppendText("Steam mode: ON (exe is placed in steamapps\\common and an appmanifest is created).\n");
+                }
+                else
+                {
+                    detailsBox.AppendText("Steam mode: OFF (tick the box above to use the Steam library layout).\n");
+                }
+            }
+
             log($"Found {winGames.Count} Windows executable path(s) for {selectedGame.Name}.");
         }
 
-        private void startButton_Click(object sender, EventArgs e)
+        private void steamManifestCheckBox_CheckedChanged(object? sender, EventArgs e)
+        {
+            ShowGameDetails();
+        }
+
+        private void setInstallFolderButton_Click(object sender, EventArgs e)
+        {
+            if (selectedGame == null)
+                return;
+
+            using FolderBrowserDialog dialog = new FolderBrowserDialog
+            {
+                Description = $"Select the folder where the spoofed executable for {selectedGame.Name} should be placed. "
+                    + "Use the game's install folder if the quest checks the executable path.",
+                UseDescriptionForTitle = true,
+                ShowNewFolderButton = true,
+            };
+
+            string current = GetGameBaseFolder(selectedGame);
+            if (Directory.Exists(current))
+            {
+                dialog.SelectedPath = current;
+            }
+
+            if (dialog.ShowDialog(this) != DialogResult.OK)
+                return;
+
+            string folder = dialog.SelectedPath;
+            if (string.IsNullOrWhiteSpace(folder))
+                return;
+
+            try
+            {
+                folder = Path.GetFullPath(folder);
+            }
+            catch (Exception ex)
+            {
+                log($"Invalid install folder: {ex.Message}");
+                MessageBox.Show("That folder path is not valid. View the log for more details.", "Install Folder", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            gameFolders[selectedGame.Id] = folder;
+            SaveGameFolders();
+
+            log($"Install folder for {selectedGame.Name} set to: {folder}");
+            gamesList_SelectedIndexChanged(sender, e);
+        }
+
+        private void defaultInstallFolderButton_Click(object sender, EventArgs e)
+        {
+            if (selectedGame == null || !HasCustomFolder(selectedGame))
+                return;
+
+            gameFolders.Remove(selectedGame.Id);
+            SaveGameFolders();
+
+            log($"Install folder for {selectedGame.Name} reset to the default bin\\games folder.");
+            gamesList_SelectedIndexChanged(sender, e);
+        }
+
+        private async void startButton_Click(object sender, EventArgs e)
         {
             if (selectedGame == null)
             {
@@ -325,25 +1176,52 @@ namespace DiscordGameSpoofer
                 return;
             }
 
-            foreach (String name in runningGamesList.Items)
+            await StartGameAsync(selectedGame, isQueueGame: false);
+        }
+
+        private async Task<bool> StartGameAsync(DiscordDetectableApplication game, bool isQueueGame)
+        {
+            if (startInProgress)
             {
-                if (name == selectedGame.Name)
-                {
-                    log($"{selectedGame.Name} is already running.");
-                    return;
-                }
+                log("A game is already being prepared. Wait a moment and try again.");
+                return false;
             }
 
-            if (selectedGame.Executables == null || selectedGame.Executables.Count == 0)
+            startInProgress = true;
+            try
             {
-                log($"Cannot start {selectedGame.Name}: no executable list found.");
-                return;
+                return await StartGameCoreAsync(game, isQueueGame);
+            }
+            finally
+            {
+                startInProgress = false;
+            }
+        }
+
+        private async Task<bool> StartGameCoreAsync(DiscordDetectableApplication game, bool isQueueGame)
+        {
+            if (queueRunning && !isQueueGame)
+            {
+                log("A queue is running. Pause or clear the queue before starting another game.");
+                return false;
+            }
+
+            if (game.Executables == null || game.Executables.Count == 0)
+            {
+                log($"Cannot start {game.Name}: no executable list found.");
+                return false;
+            }
+
+            if (runningGames.Any(r => r.GameId == game.Id))
+            {
+                log($"{game.Name} is already running.");
+                return false;
             }
 
             List<String> winGames = new List<String>();
-            foreach (DiscordExecutable exe in selectedGame.Executables)
+            foreach (DiscordExecutable exe in game.Executables)
             {
-                if (exe.Os == "win32")
+                if (exe.Os == "win32" && !string.IsNullOrEmpty(exe.Name))
                 {
                     winGames.Add(exe.Name);
                 }
@@ -351,12 +1229,12 @@ namespace DiscordGameSpoofer
 
             if (winGames.Count == 0)
             {
-                log($"Cannot start {selectedGame.Name}: no Windows executable found.");
-                return;
+                log($"Cannot start {game.Name}: no Windows executable found.");
+                return false;
             }
 
             // We've validated its a valid game
-            string[] disallowedChars = new string[] { "<", ">", "\"", "\\", "|", "*", "?", "~" };
+            string[] disallowedChars = new string[] { "<", ">", "\"", "\\", "|", "*", "?", "~", ":" };
 
             string? pathGame = null;
             foreach (String exe in winGames)
@@ -372,7 +1250,7 @@ namespace DiscordGameSpoofer
 
             if (pathGame == null)
             {
-                log($"No valid executable path found for {selectedGame.Name}.");
+                log($"No valid executable path found for {game.Name}.");
                 DialogResult result = MessageBox.Show("No valid game paths were detected.\n\nPlease open a Github issue if this is unexpected.\nOpen Github issues page?", "No Valid Game Path", MessageBoxButtons.YesNo);
                 if (result == DialogResult.Yes)
                 {
@@ -382,16 +1260,54 @@ namespace DiscordGameSpoofer
                         UseShellExecute = true,
                     });
                 }
-                return;
+                return false;
+            }
+
+            string baseFolder = GetGameBaseFolder(game);
+            string? steamAppId = null;
+            SteamLibrary? steamLibrary = null;
+            string? steamInstallDir = null;
+            bool useSteam = steamManifestCheckBox.Checked && steamLibraries.Count > 0;
+
+            if (useSteam)
+            {
+                steamAppId = GetSteamAppId(game);
+
+                if (steamAppId == null)
+                {
+                    log($"{game.Name} has no Steam app ID. Using the selected install folder instead.");
+                    useSteam = false;
+                }
+            }
+
+            if (useSteam && steamAppId != null)
+            {
+                SteamLibrary? library = FindSteamLibraryForApp(steamAppId, out string? existingManifestPath);
+
+                if (library == null)
+                {
+                    log("No writable Steam library was found. Using the selected install folder instead.");
+                    useSteam = false;
+                }
+                else
+                {
+                    string installDir = await GetSteamInstallDirAsync(steamAppId, game.Name, existingManifestPath);
+
+                    steamLibrary = library;
+                    steamInstallDir = installDir;
+                    baseFolder = Path.Combine(library.CommonPath, installDir);
+
+                    log($"Steam mode enabled: app {steamAppId}, install folder {baseFolder}");
+                }
             }
 
             string[] splitPath = pathGame.Split("/");
-            string full_dir = Path.Combine(gamePath, string.Join("\\", splitPath.Take(splitPath.Length - 1).ToArray()));
+            string full_dir = Path.Combine(baseFolder, string.Join("\\", splitPath.Take(splitPath.Length - 1).ToArray()));
             string exe_path = Path.Combine(full_dir, splitPath.Last());
 
             // Security check - this is an edge case. Normally, the return from Discord's API should be safe,
-            // but this ensures the spoof executables can only be created inside the app's games folder.
-            string fullGamePath = Path.GetFullPath(gamePath);
+            // but this ensures the spoof executables can only be created inside the selected install folder.
+            string fullGamePath = Path.GetFullPath(baseFolder);
             string fullExePath = Path.GetFullPath(exe_path);
 
             if (!fullGamePath.EndsWith(Path.DirectorySeparatorChar))
@@ -399,49 +1315,360 @@ namespace DiscordGameSpoofer
 
             if (!fullExePath.StartsWith(fullGamePath, StringComparison.OrdinalIgnoreCase))
             {
-                log($"Blocked unsafe executable path. Game: {selectedGame.Name}, Path: {fullExePath}, Allowed root: {fullGamePath}");
+                log($"Blocked unsafe executable path. Game: {game.Name}, Path: {fullExePath}, Allowed root: {fullGamePath}");
                 MessageBox.Show("Game launch aborted because last minute safety check failed. View log for more details.");
-                return;
+                return false;
             }
 
             string? safeGameDir = Path.GetDirectoryName(fullExePath);
             if (safeGameDir == null)
             {
-                log($"Could not determine game's folder for {selectedGame.Name}.");
+                log($"Could not determine game's folder for {game.Name}.");
                 MessageBox.Show("An unexpected error occurred. View logs for more details.");
-                return;
+                return false;
             }
 
-            if (!Path.Exists(safeGameDir))
+            if (!IsSpoofHostAvailable())
             {
-                Directory.CreateDirectory(safeGameDir);
-                log($"Created spoof folder: {safeGameDir}");
+                log("The spoof host executable could not be located. Cannot create the spoof executable.");
+                MessageBox.Show("The spoof host could not be found. Restart the app and try again.");
+                return false;
             }
-                
-            if (!File.Exists(fullExePath))
+
+            try
             {
-                File.Copy(blankWindowPath, fullExePath);
-                log($"Created spoof executable: {fullExePath}");
+                if (!Directory.Exists(safeGameDir))
+                {
+                    Directory.CreateDirectory(safeGameDir);
+                    log($"Created spoof folder: {safeGameDir}");
+                }
+
+                CreateSpoofExecutable(fullExePath, game.Name);
+
+                if (useSteam && steamLibrary != null && steamAppId != null && steamInstallDir != null)
+                {
+                    try
+                    {
+                        CreateSteamManifest(steamLibrary.SteamAppsPath, steamAppId, game.Name, steamInstallDir);
+                    }
+                    catch (Exception ex)
+                    {
+                        log($"Failed to create the Steam manifest for {game.Name}: {ex.Message}");
+                        log("The game will still start, but quests that check Steam installation may not progress.");
+                    }
+                }
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                log($"Windows denied access to the install folder for {game.Name}: {ex.Message}");
+                MessageBox.Show(
+                    "Windows denied access to the selected install folder.\n\n"
+                    + "Choose a folder you can write to, or run Discord Game Spoofer as administrator.",
+                    "Install Folder Permission",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return false;
+            }
+            catch (IOException ex)
+            {
+                log($"Failed to prepare spoof executable for {game.Name}: {ex.Message}");
+                MessageBox.Show(ex.Message, "Spoof Executable", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                log($"Failed to prepare spoof executable for {game.Name}: {ex.Message}");
+                MessageBox.Show("Failed to create the spoof executable. View logs for more details.");
+                return false;
             }
 
-            // Use fullExePath here after validation that it's safe
-            ProcessStartInfo startInfo = new ProcessStartInfo(fullExePath);
-            startInfo.CreateNoWindow = false;
+            // The spoof host is a visible GUI app. Discord ignores hidden and console
+            // processes, so the window must stay visible for the quest to count.
+            ProcessStartInfo startInfo = new ProcessStartInfo(fullExePath)
+            {
+                UseShellExecute = false,
+                WorkingDirectory = safeGameDir,
+            };
 
-            Process? proc = Process.Start(startInfo);
+            startInfo.ArgumentList.Add("--spoof-host");
+            startInfo.ArgumentList.Add(game.Name);
+
+            Process? proc;
+            try
+            {
+                proc = Process.Start(startInfo);
+            }
+            catch (Exception ex)
+            {
+                log($"Failed to start spoof process for {game.Name}: {ex.Message}");
+                return false;
+            }
+
             if (proc == null)
             {
-                log($"Failed to start spoof process for {selectedGame.Name}.");
-                return;
+                log($"Failed to start spoof process for {game.Name}.");
+                return false;
             }
 
-            procList.Add(proc);
+            RunningGame runningGame = new RunningGame
+            {
+                Process = proc,
+                Name = game.Name,
+                GameId = game.Id,
+                StartTime = DateTime.Now,
+                IsQueueGame = isQueueGame,
+            };
 
-            runningGamesList.Items.Add(selectedGame.Name);
+            runningGames.Add(runningGame);
+            runningGamesList.Items.Add(runningGame);
             runningGamesTime.Items.Add("00:00:00");
-            gameStartTimes.Add(DateTime.Now);
 
-            log($"Started spoofing {selectedGame.Name}.");
+            log(isQueueGame ? $"Started spoofing {game.Name} (queue)." : $"Started spoofing {game.Name}.");
+            log("A visible spoof window was opened. Keep it open while the quest is active.");
+
+            UpdateQueueButtons();
+            return true;
+        }
+
+        private string? GetHostSource()
+        {
+            string? processPath = Environment.ProcessPath;
+
+            if (!string.IsNullOrEmpty(processPath)
+                && File.Exists(processPath)
+                && !string.Equals(Path.GetFileName(processPath), "dotnet.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return processPath;
+            }
+
+            // Fallback for `dotnet run`: use the apphost next to the managed dll.
+            string candidate = Path.Combine(appPath, "DiscordGameSpoofer.exe");
+            return File.Exists(candidate) ? candidate : null;
+        }
+
+        private bool IsSpoofHostAvailable()
+        {
+            return GetHostSource() != null;
+        }
+
+        private static bool IsSpoofHostFile(string path)
+        {
+            try
+            {
+                using FileStream stream = File.OpenRead(path);
+                if (stream.Length < HostTrailer.Length)
+                    return false;
+
+                stream.Seek(-HostTrailer.Length, SeekOrigin.End);
+                byte[] buffer = new byte[HostTrailer.Length];
+                int read = stream.Read(buffer, 0, buffer.Length);
+
+                return read == buffer.Length && buffer.SequenceEqual(HostTrailer);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void CopyHostCompanion(string source, string targetDirectory)
+        {
+            if (!File.Exists(source))
+                return;
+
+            string target = Path.Combine(targetDirectory, Path.GetFileName(source));
+
+            if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (File.Exists(target))
+            {
+                FileInfo sourceInfo = new FileInfo(source);
+                FileInfo targetInfo = new FileInfo(target);
+
+                if (sourceInfo.Length == targetInfo.Length
+                    && sourceInfo.LastWriteTimeUtc == targetInfo.LastWriteTimeUtc)
+                {
+                    return;
+                }
+            }
+
+            try
+            {
+                File.Copy(source, target, overwrite: true);
+            }
+            catch (IOException) when (File.Exists(target))
+            {
+                // A just-stopped spoof host may still be releasing the file. The
+                // existing copy is from the same app version, so it is safe to use.
+                log($"Could not update {target}; using the existing file.");
+            }
+            catch (UnauthorizedAccessException) when (File.Exists(target))
+            {
+                log($"Could not update {target}; using the existing file.");
+            }
+        }
+
+        private void CreateSpoofExecutable(string destination, string gameName)
+        {
+            string? hostSource = GetHostSource();
+            if (hostSource == null)
+                throw new InvalidOperationException("The spoof host executable could not be located.");
+
+            if (string.Equals(Path.GetFullPath(hostSource), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
+                throw new IOException("The spoof executable cannot overwrite the running application.");
+
+            bool rewriteHost = true;
+
+            // Try to regenerate the file on every start so every generated exe has a new random size.
+            if (File.Exists(destination))
+            {
+                if (!IsSpoofHostFile(destination))
+                {
+                    throw new IOException(
+                        $"A file already exists at:\n{destination}\n\n"
+                        + "It was not created by Discord Game Spoofer, so it was not overwritten. "
+                        + "Choose a different install folder or remove that file manually.");
+                }
+
+                try
+                {
+                    File.Delete(destination);
+                }
+                catch (IOException)
+                {
+                    log($"Spoof executable is in use, keeping the existing file: {destination}");
+                    rewriteHost = false;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    log($"Spoof executable is locked, keeping the existing file: {destination}");
+                    rewriteHost = false;
+                }
+            }
+
+            string? destinationDir = Path.GetDirectoryName(destination);
+            if (!string.IsNullOrEmpty(destinationDir) && !Directory.Exists(destinationDir))
+            {
+                Directory.CreateDirectory(destinationDir);
+                log($"Created spoof folder: {destinationDir}");
+            }
+
+            if (rewriteHost)
+            {
+                File.Copy(hostSource, destination, overwrite: true);
+
+                int paddingSize = GetRandomPaddingSize(destination);
+                byte[] padding = RandomNumberGenerator.GetBytes(paddingSize);
+
+                // Extra bytes after the PE image are ignored by the Windows loader, but they
+                // make every generated exe a different size. The trailer lets us recognise
+                // our own files so real game executables are never overwritten.
+                using (FileStream stream = new FileStream(destination, FileMode.Append, FileAccess.Write, FileShare.None))
+                {
+                    stream.Write(padding, 0, padding.Length);
+                    stream.Write(HostTrailer, 0, HostTrailer.Length);
+                }
+
+                log($"Created spoof host for {gameName}: {destination} ({new FileInfo(destination).Length} bytes)");
+            }
+
+            // A framework-dependent apphost needs the managed assembly and config files
+            // next to it. Single-file builds only need the exe itself.
+            string? entryDll = Assembly.GetEntryAssembly()?.Location;
+            if (!string.IsNullOrEmpty(entryDll) && File.Exists(entryDll))
+            {
+                CopyHostCompanion(entryDll, destinationDir!);
+                CopyHostCompanion(Path.ChangeExtension(entryDll, ".deps.json"), destinationDir!);
+                CopyHostCompanion(Path.ChangeExtension(entryDll, ".runtimeconfig.json"), destinationDir!);
+            }
+        }
+
+        private int GetRandomPaddingSize(string destination)
+        {
+            HashSet<long> existingSizes = new HashSet<long>();
+
+            void AddSizes(string folder, SearchOption searchOption)
+            {
+                try
+                {
+                    foreach (string file in Directory.EnumerateFiles(folder, "*.exe", searchOption))
+                    {
+                        if (string.Equals(file, destination, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        existingSizes.Add(new FileInfo(file).Length);
+                    }
+                }
+                catch
+                {
+                    // Not critical - fall back to a plain random size.
+                }
+            }
+
+            // The default games folder is small, so scan it fully. Custom install
+            // folders can be large real game folders, so only check siblings.
+            if (!string.IsNullOrWhiteSpace(gamePath) && Directory.Exists(gamePath))
+            {
+                AddSizes(gamePath, SearchOption.AllDirectories);
+            }
+
+            string? destinationDir = Path.GetDirectoryName(destination);
+            if (!string.IsNullOrEmpty(destinationDir)
+                && Directory.Exists(destinationDir)
+                && !string.Equals(Path.GetFullPath(destinationDir), Path.GetFullPath(gamePath), StringComparison.OrdinalIgnoreCase))
+            {
+                AddSizes(destinationDir, SearchOption.TopDirectoryOnly);
+            }
+
+            string? hostSource = GetHostSource();
+            long baseSize = hostSource != null ? new FileInfo(hostSource).Length + HostTrailer.Length : 0;
+
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                int padding = RandomNumberGenerator.GetInt32(1024, (64 * 1024) + 1);
+                if (!existingSizes.Contains(baseSize + padding))
+                {
+                    return padding;
+                }
+            }
+
+            return RandomNumberGenerator.GetInt32(1024, (64 * 1024) + 1);
+        }
+
+        private void RemoveRunningGame(int index, bool kill)
+        {
+            if (index < 0 || index >= runningGames.Count)
+                return;
+
+            RunningGame game = runningGames[index];
+
+            if (kill)
+            {
+                try
+                {
+                    if (!game.Process.HasExited)
+                        game.Process.Kill();
+                }
+                catch (Exception ex)
+                {
+                    log($"Failed to stop {game.Name}: {ex.Message}");
+                }
+            }
+
+            try
+            {
+                game.Process.Dispose();
+            }
+            catch
+            {
+            }
+
+            runningGames.RemoveAt(index);
+            runningGamesList.Items.RemoveAt(index);
+            runningGamesTime.Items.RemoveAt(index);
+
+            UpdateQueueButtons();
         }
 
         private void runningGamesList_SelectedIndexChanged(object sender, EventArgs e) => runningGamesTime.SelectedIndex = runningGamesList.SelectedIndex;
@@ -451,24 +1678,240 @@ namespace DiscordGameSpoofer
         private void stopButton_Click(object sender, EventArgs e)
         {
             int selectedIndex = runningGamesList.SelectedIndex;
-            if (selectedIndex < 0)
+            if (selectedIndex < 0 || selectedIndex >= runningGames.Count)
             {
                 log("Stop clicked, but no running game is selected.");
                 return;
             }
 
-            string gameName = runningGamesList.Items[selectedIndex].ToString() ?? "Unknown game";
+            RunningGame game = runningGames[selectedIndex];
+            bool wasActiveQueueGame = ReferenceEquals(game, activeQueueGame);
+            string gameName = game.Name;
 
-            if (!procList[selectedIndex].HasExited)
-                procList[selectedIndex].Kill();
-
-            procList.RemoveAt(selectedIndex);
-
-            runningGamesList.Items.RemoveAt(selectedIndex);
-            runningGamesTime.Items.RemoveAt(selectedIndex);
-            gameStartTimes.RemoveAt(selectedIndex);
-
+            RemoveRunningGame(selectedIndex, kill: true);
             log($"Stopped spoofing {gameName}.");
+
+            if (wasActiveQueueGame)
+            {
+                activeQueueGame = null;
+                queueRunning = false;
+                log("Queue paused. Press Start Queue to continue with the remaining games.");
+                UpdateQueueButtons();
+            }
+        }
+
+        private void addToQueueButton_Click(object sender, EventArgs e)
+        {
+            if (selectedGame == null)
+            {
+                log("Add to Queue clicked, but no game is selected.");
+                return;
+            }
+
+            if (gameQueue.Any(g => g.Id == selectedGame.Id))
+            {
+                log($"{selectedGame.Name} is already in the queue.");
+                return;
+            }
+
+            gameQueue.Add(selectedGame);
+            RefreshQueueList(gameQueue.Count - 1);
+            log($"Added {selectedGame.Name} to the queue.");
+        }
+
+        private void queueList_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            UpdateQueueButtons();
+        }
+
+        private async void startQueueButton_Click(object sender, EventArgs e)
+        {
+            if (queueRunning)
+            {
+                log("The queue is already running.");
+                return;
+            }
+
+            if (gameQueue.Count == 0)
+            {
+                log("The queue is empty. Add some games first.");
+                return;
+            }
+
+            if (!IsSpoofHostAvailable())
+            {
+                log("Cannot start the queue because the spoof host could not be located.");
+                return;
+            }
+
+            if (runningGames.Count > 0)
+            {
+                log("Stop the running game(s) before starting the queue.");
+                return;
+            }
+
+            queueRunning = true;
+            log("Starting queue.");
+            UpdateQueueButtons();
+            await StartNextQueuedGameAsync();
+        }
+
+        private async Task StartNextQueuedGameAsync()
+        {
+            if (!queueRunning || startInProgress)
+                return;
+
+            if (gameQueue.Count == 0)
+            {
+                queueRunning = false;
+                activeQueueGame = null;
+                log("Queue finished.");
+                RefreshQueueList();
+                return;
+            }
+
+            while (gameQueue.Count > 0)
+            {
+                DiscordDetectableApplication game = gameQueue[0];
+                gameQueue.RemoveAt(0);
+                RefreshQueueList(0);
+
+                if (await StartGameAsync(game, isQueueGame: true))
+                {
+                    activeQueueGame = runningGames.LastOrDefault();
+                    return;
+                }
+
+                log($"Skipping {game.Name} because it could not be started.");
+            }
+
+            queueRunning = false;
+            activeQueueGame = null;
+            log("Queue finished.");
+            RefreshQueueList();
+        }
+
+        private void removeQueueButton_Click(object sender, EventArgs e)
+        {
+            int index = queueList.SelectedIndex;
+            if (index < 0 || index >= gameQueue.Count)
+                return;
+
+            string gameName = gameQueue[index].Name;
+            gameQueue.RemoveAt(index);
+            RefreshQueueList(Math.Min(index, gameQueue.Count - 1));
+            log($"Removed {gameName} from the queue.");
+        }
+
+        private void queueUpButton_Click(object sender, EventArgs e)
+        {
+            int index = queueList.SelectedIndex;
+            if (index <= 0 || index >= gameQueue.Count)
+                return;
+
+            (gameQueue[index - 1], gameQueue[index]) = (gameQueue[index], gameQueue[index - 1]);
+            RefreshQueueList(index - 1);
+        }
+
+        private void queueDownButton_Click(object sender, EventArgs e)
+        {
+            int index = queueList.SelectedIndex;
+            if (index < 0 || index >= gameQueue.Count - 1)
+                return;
+
+            (gameQueue[index + 1], gameQueue[index]) = (gameQueue[index], gameQueue[index + 1]);
+            RefreshQueueList(index + 1);
+        }
+
+        private void clearQueueButton_Click(object sender, EventArgs e)
+        {
+            int count = gameQueue.Count;
+            gameQueue.Clear();
+
+            // Stop auto-advancing. If a queued game is still running, it finishes normally.
+            queueRunning = false;
+
+            RefreshQueueList();
+            log($"Cleared {count} game(s) from the queue.");
+        }
+
+        private void RefreshQueueList(int selectIndex = -1)
+        {
+            queueList.BeginUpdate();
+            queueList.Items.Clear();
+
+            for (int i = 0; i < gameQueue.Count; i++)
+            {
+                queueList.Items.Add($"{i + 1}. {gameQueue[i].Name}");
+            }
+
+            queueList.EndUpdate();
+
+            if (selectIndex >= 0 && selectIndex < queueList.Items.Count)
+            {
+                queueList.SelectedIndex = selectIndex;
+            }
+            else
+            {
+                queueList.SelectedIndex = -1;
+            }
+
+            UpdateQueueButtons();
+        }
+
+        private void UpdateQueueButtons()
+        {
+            int index = queueList.SelectedIndex;
+            bool hasSelection = index >= 0 && index < gameQueue.Count;
+
+            bool canStart = IsSpoofHostAvailable();
+
+            startButton.Enabled = canStart && !queueRunning;
+            removeQueueButton.Enabled = hasSelection;
+            queueUpButton.Enabled = hasSelection && index > 0;
+            queueDownButton.Enabled = hasSelection && index < gameQueue.Count - 1;
+            clearQueueButton.Enabled = gameQueue.Count > 0;
+            startQueueButton.Enabled = gameQueue.Count > 0
+                && !queueRunning
+                && runningGames.Count == 0
+                && canStart;
+        }
+
+        private void customAppButton_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(gamePath))
+            {
+                log("Cannot add a custom app before setup is complete.");
+                return;
+            }
+
+            using CustomApplicationForm dialog = new CustomApplicationForm(gamePath);
+
+            DialogResult dialogResult = dialog.ShowDialog(this);
+            DiscordDetectableApplication? result = dialog.Result;
+
+            if (dialogResult != DialogResult.OK || result == null)
+                return;
+
+            DiscordDetectableApplication app = result;
+
+            if (customGames.Any(g => g.Id == app.Id))
+                return;
+
+            customGames.Add(app);
+            allGames.Add(app);
+            SaveCustomApps();
+
+            searchBox.Clear();
+            RefreshGamesList();
+
+            int index = gamesList.Items.IndexOf(app);
+            if (index >= 0)
+            {
+                gamesList.SelectedIndex = index;
+            }
+
+            log($"Added custom application: {app.Name} ({app.Executables[0].Name}).");
         }
 
         private void toggleLogButton_Click(object sender, EventArgs e)
@@ -483,6 +1926,35 @@ namespace DiscordGameSpoofer
                 logBox.Hide();
                 logShown = false;
             }
+        }
+
+        private void Form1_FormClosing(object? sender, FormClosingEventArgs e)
+        {
+            gameTimer.Stop();
+
+            foreach (RunningGame game in runningGames)
+            {
+                try
+                {
+                    if (!game.Process.HasExited)
+                        game.Process.Kill();
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    game.Process.Dispose();
+                }
+                catch
+                {
+                }
+            }
+
+            runningGames.Clear();
+
+            CleanupSteamManifests();
         }
     }
 }

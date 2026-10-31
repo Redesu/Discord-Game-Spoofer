@@ -1,4 +1,4 @@
-﻿namespace DiscordGameSpoofer
+namespace DiscordGameSpoofer
 {
     partial class Form1
     {
@@ -41,11 +41,23 @@
             logBox = new RichTextBox();
             toggleLogButton = new Button();
             versionLabel = new Label();
-            checkBox1 = new CheckBox();
+            autoStopCheckBox = new CheckBox();
+            addToQueueButton = new Button();
+            customAppButton = new Button();
+            queueLabel = new Label();
+            queueList = new ListBox();
+            startQueueButton = new Button();
+            removeQueueButton = new Button();
+            queueUpButton = new Button();
+            queueDownButton = new Button();
+            clearQueueButton = new Button();
+            setInstallFolderButton = new Button();
+            defaultInstallFolderButton = new Button();
+            steamManifestCheckBox = new CheckBox();
             SuspendLayout();
-            // 
+            //
             // gamesList
-            // 
+            //
             gamesList.BackColor = Color.FromArgb(17, 24, 39);
             gamesList.BorderStyle = BorderStyle.None;
             gamesList.ForeColor = Color.FromArgb(226, 232, 240);
@@ -54,12 +66,12 @@
             gamesList.Location = new Point(22, 94);
             gamesList.Margin = new Padding(6, 6, 6, 6);
             gamesList.Name = "gamesList";
-            gamesList.Size = new Size(316, 834);
+            gamesList.Size = new Size(316, 780);
             gamesList.TabIndex = 0;
             gamesList.SelectedIndexChanged += gamesList_SelectedIndexChanged;
-            // 
+            //
             // searchBox
-            // 
+            //
             searchBox.BackColor = Color.FromArgb(24, 32, 50);
             searchBox.BorderStyle = BorderStyle.FixedSingle;
             searchBox.ForeColor = Color.FromArgb(226, 232, 240);
@@ -70,9 +82,9 @@
             searchBox.Size = new Size(314, 39);
             searchBox.TabIndex = 1;
             searchBox.TextChanged += searchBox_TextChanged;
-            // 
+            //
             // runningGamesList
-            // 
+            //
             runningGamesList.BackColor = Color.FromArgb(17, 24, 39);
             runningGamesList.BorderStyle = BorderStyle.None;
             runningGamesList.ForeColor = Color.FromArgb(226, 232, 240);
@@ -83,9 +95,9 @@
             runningGamesList.Size = new Size(964, 384);
             runningGamesList.TabIndex = 2;
             runningGamesList.SelectedIndexChanged += runningGamesList_SelectedIndexChanged;
-            // 
+            //
             // label1
-            // 
+            //
             label1.AutoSize = true;
             label1.BackColor = Color.FromArgb(10, 14, 23);
             label1.Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold);
@@ -96,9 +108,9 @@
             label1.Size = new Size(186, 32);
             label1.TabIndex = 3;
             label1.Text = "Running Games";
-            // 
+            //
             // stopButton
-            // 
+            //
             stopButton.BackColor = Color.FromArgb(244, 63, 94);
             stopButton.Cursor = Cursors.Hand;
             stopButton.FlatAppearance.BorderSize = 0;
@@ -112,9 +124,9 @@
             stopButton.Text = "Stop";
             stopButton.UseVisualStyleBackColor = false;
             stopButton.Click += stopButton_Click;
-            // 
+            //
             // startButton
-            // 
+            //
             startButton.BackColor = Color.FromArgb(14, 165, 233);
             startButton.Cursor = Cursors.Hand;
             startButton.FlatAppearance.BorderSize = 0;
@@ -128,36 +140,36 @@
             startButton.Text = "Start";
             startButton.UseVisualStyleBackColor = false;
             startButton.Click += startButton_Click;
-            // 
+            //
             // detailsBox
-            // 
+            //
             detailsBox.BackColor = Color.FromArgb(17, 24, 39);
             detailsBox.BorderStyle = BorderStyle.None;
             detailsBox.Font = new Font("Consolas", 9F);
             detailsBox.ForeColor = Color.FromArgb(226, 232, 240);
-            detailsBox.Location = new Point(349, 555);
+            detailsBox.Location = new Point(770, 555);
             detailsBox.Margin = new Padding(6, 6, 6, 6);
             detailsBox.Name = "detailsBox";
             detailsBox.ReadOnly = true;
-            detailsBox.Size = new Size(1114, 373);
+            detailsBox.Size = new Size(693, 373);
             detailsBox.TabIndex = 6;
             detailsBox.Text = "";
-            // 
+            //
             // label2
-            // 
+            //
             label2.AutoSize = true;
             label2.BackColor = Color.FromArgb(10, 14, 23);
             label2.Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold);
             label2.ForeColor = Color.FromArgb(56, 189, 248);
-            label2.Location = new Point(349, 499);
+            label2.Location = new Point(770, 499);
             label2.Margin = new Padding(6, 0, 6, 0);
             label2.Name = "label2";
             label2.Size = new Size(88, 32);
             label2.TabIndex = 7;
             label2.Text = "Details";
-            // 
+            //
             // runningGamesTime
-            // 
+            //
             runningGamesTime.BackColor = Color.FromArgb(17, 24, 39);
             runningGamesTime.BorderStyle = BorderStyle.None;
             runningGamesTime.ForeColor = Color.FromArgb(226, 232, 240);
@@ -168,23 +180,23 @@
             runningGamesTime.Size = new Size(139, 384);
             runningGamesTime.TabIndex = 8;
             runningGamesTime.SelectedIndexChanged += runningGamesTime_SelectedIndexChanged;
-            // 
+            //
             // logBox
-            // 
+            //
             logBox.BackColor = Color.FromArgb(17, 24, 39);
             logBox.BorderStyle = BorderStyle.None;
             logBox.Font = new Font("Consolas", 9F);
             logBox.ForeColor = Color.FromArgb(226, 232, 240);
-            logBox.Location = new Point(349, 555);
+            logBox.Location = new Point(770, 555);
             logBox.Margin = new Padding(6, 6, 6, 6);
             logBox.Name = "logBox";
             logBox.ReadOnly = true;
-            logBox.Size = new Size(1114, 373);
+            logBox.Size = new Size(693, 373);
             logBox.TabIndex = 9;
             logBox.Text = "";
-            // 
+            //
             // toggleLogButton
-            // 
+            //
             toggleLogButton.BackColor = Color.FromArgb(0, 192, 0);
             toggleLogButton.Cursor = Cursors.Hand;
             toggleLogButton.FlatAppearance.BorderSize = 0;
@@ -198,9 +210,9 @@
             toggleLogButton.Text = "Toggle Log";
             toggleLogButton.UseVisualStyleBackColor = false;
             toggleLogButton.Click += toggleLogButton_Click;
-            // 
+            //
             // versionLabel
-            // 
+            //
             versionLabel.AutoSize = true;
             versionLabel.BackColor = Color.FromArgb(10, 14, 23);
             versionLabel.Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold);
@@ -211,31 +223,235 @@
             versionLabel.Size = new Size(77, 32);
             versionLabel.TabIndex = 11;
             versionLabel.Text = "v0.0.0";
-            // 
-            // checkBox1
-            // 
-            checkBox1.BackColor = Color.FromArgb(10, 14, 23);
-            checkBox1.FlatAppearance.BorderColor = Color.FromArgb(56, 189, 248);
-            checkBox1.FlatAppearance.CheckedBackColor = Color.FromArgb(14, 165, 233);
-            checkBox1.FlatAppearance.MouseDownBackColor = Color.FromArgb(17, 24, 39);
-            checkBox1.FlatAppearance.MouseOverBackColor = Color.FromArgb(24, 32, 50);
-            checkBox1.FlatStyle = FlatStyle.Flat;
-            checkBox1.ForeColor = Color.FromArgb(226, 232, 240);
-            checkBox1.Location = new Point(615, 26);
-            checkBox1.Margin = new Padding(6, 6, 6, 6);
-            checkBox1.Name = "checkBox1";
-            checkBox1.Size = new Size(311, 49);
-            checkBox1.TabIndex = 12;
-            checkBox1.Text = "Auto Stop after 20min";
-            checkBox1.UseVisualStyleBackColor = false;
-            // 
+            //
+            // autoStopCheckBox
+            //
+            autoStopCheckBox.BackColor = Color.FromArgb(10, 14, 23);
+            autoStopCheckBox.FlatAppearance.BorderColor = Color.FromArgb(56, 189, 248);
+            autoStopCheckBox.FlatAppearance.CheckedBackColor = Color.FromArgb(14, 165, 233);
+            autoStopCheckBox.FlatAppearance.MouseDownBackColor = Color.FromArgb(17, 24, 39);
+            autoStopCheckBox.FlatAppearance.MouseOverBackColor = Color.FromArgb(24, 32, 50);
+            autoStopCheckBox.FlatStyle = FlatStyle.Flat;
+            autoStopCheckBox.ForeColor = Color.FromArgb(226, 232, 240);
+            autoStopCheckBox.Location = new Point(615, 26);
+            autoStopCheckBox.Margin = new Padding(6, 6, 6, 6);
+            autoStopCheckBox.Name = "autoStopCheckBox";
+            autoStopCheckBox.Size = new Size(311, 49);
+            autoStopCheckBox.TabIndex = 12;
+            autoStopCheckBox.Text = "Auto stop after 20 min";
+            autoStopCheckBox.UseVisualStyleBackColor = false;
+            //
+            // addToQueueButton
+            //
+            addToQueueButton.BackColor = Color.FromArgb(71, 85, 105);
+            addToQueueButton.Cursor = Cursors.Hand;
+            addToQueueButton.FlatAppearance.BorderSize = 0;
+            addToQueueButton.FlatStyle = FlatStyle.Flat;
+            addToQueueButton.ForeColor = Color.White;
+            addToQueueButton.Location = new Point(22, 884);
+            addToQueueButton.Margin = new Padding(6, 6, 6, 6);
+            addToQueueButton.Name = "addToQueueButton";
+            addToQueueButton.Size = new Size(155, 44);
+            addToQueueButton.TabIndex = 13;
+            addToQueueButton.Text = "Add to Queue";
+            addToQueueButton.UseVisualStyleBackColor = false;
+            addToQueueButton.Click += addToQueueButton_Click;
+            //
+            // customAppButton
+            //
+            customAppButton.BackColor = Color.FromArgb(71, 85, 105);
+            customAppButton.Cursor = Cursors.Hand;
+            customAppButton.FlatAppearance.BorderSize = 0;
+            customAppButton.FlatStyle = FlatStyle.Flat;
+            customAppButton.ForeColor = Color.White;
+            customAppButton.Location = new Point(183, 884);
+            customAppButton.Margin = new Padding(6, 6, 6, 6);
+            customAppButton.Name = "customAppButton";
+            customAppButton.Size = new Size(155, 44);
+            customAppButton.TabIndex = 14;
+            customAppButton.Text = "Custom App...";
+            customAppButton.UseVisualStyleBackColor = false;
+            customAppButton.Click += customAppButton_Click;
+            //
+            // queueLabel
+            //
+            queueLabel.AutoSize = true;
+            queueLabel.BackColor = Color.FromArgb(10, 14, 23);
+            queueLabel.Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold);
+            queueLabel.ForeColor = Color.FromArgb(56, 189, 248);
+            queueLabel.Location = new Point(349, 499);
+            queueLabel.Margin = new Padding(6, 0, 6, 0);
+            queueLabel.Name = "queueLabel";
+            queueLabel.Size = new Size(88, 32);
+            queueLabel.TabIndex = 15;
+            queueLabel.Text = "Queue";
+            //
+            // queueList
+            //
+            queueList.BackColor = Color.FromArgb(17, 24, 39);
+            queueList.BorderStyle = BorderStyle.None;
+            queueList.ForeColor = Color.FromArgb(226, 232, 240);
+            queueList.FormattingEnabled = true;
+            queueList.IntegralHeight = false;
+            queueList.Location = new Point(349, 555);
+            queueList.Margin = new Padding(6, 6, 6, 6);
+            queueList.Name = "queueList";
+            queueList.Size = new Size(300, 373);
+            queueList.TabIndex = 16;
+            queueList.SelectedIndexChanged += queueList_SelectedIndexChanged;
+            //
+            // startQueueButton
+            //
+            startQueueButton.BackColor = Color.FromArgb(14, 165, 233);
+            startQueueButton.Cursor = Cursors.Hand;
+            startQueueButton.FlatAppearance.BorderSize = 0;
+            startQueueButton.FlatStyle = FlatStyle.Flat;
+            startQueueButton.ForeColor = Color.White;
+            startQueueButton.Location = new Point(660, 555);
+            startQueueButton.Margin = new Padding(6, 6, 6, 6);
+            startQueueButton.Name = "startQueueButton";
+            startQueueButton.Size = new Size(100, 50);
+            startQueueButton.TabIndex = 17;
+            startQueueButton.Text = "Start Queue";
+            startQueueButton.UseVisualStyleBackColor = false;
+            startQueueButton.Click += startQueueButton_Click;
+            //
+            // removeQueueButton
+            //
+            removeQueueButton.BackColor = Color.FromArgb(71, 85, 105);
+            removeQueueButton.Cursor = Cursors.Hand;
+            removeQueueButton.FlatAppearance.BorderSize = 0;
+            removeQueueButton.FlatStyle = FlatStyle.Flat;
+            removeQueueButton.ForeColor = Color.White;
+            removeQueueButton.Location = new Point(660, 611);
+            removeQueueButton.Margin = new Padding(6, 6, 6, 6);
+            removeQueueButton.Name = "removeQueueButton";
+            removeQueueButton.Size = new Size(100, 50);
+            removeQueueButton.TabIndex = 18;
+            removeQueueButton.Text = "Remove";
+            removeQueueButton.UseVisualStyleBackColor = false;
+            removeQueueButton.Click += removeQueueButton_Click;
+            //
+            // queueUpButton
+            //
+            queueUpButton.BackColor = Color.FromArgb(71, 85, 105);
+            queueUpButton.Cursor = Cursors.Hand;
+            queueUpButton.FlatAppearance.BorderSize = 0;
+            queueUpButton.FlatStyle = FlatStyle.Flat;
+            queueUpButton.ForeColor = Color.White;
+            queueUpButton.Location = new Point(660, 667);
+            queueUpButton.Margin = new Padding(6, 6, 6, 6);
+            queueUpButton.Name = "queueUpButton";
+            queueUpButton.Size = new Size(100, 50);
+            queueUpButton.TabIndex = 19;
+            queueUpButton.Text = "Move Up";
+            queueUpButton.UseVisualStyleBackColor = false;
+            queueUpButton.Click += queueUpButton_Click;
+            //
+            // queueDownButton
+            //
+            queueDownButton.BackColor = Color.FromArgb(71, 85, 105);
+            queueDownButton.Cursor = Cursors.Hand;
+            queueDownButton.FlatAppearance.BorderSize = 0;
+            queueDownButton.FlatStyle = FlatStyle.Flat;
+            queueDownButton.ForeColor = Color.White;
+            queueDownButton.Location = new Point(660, 723);
+            queueDownButton.Margin = new Padding(6, 6, 6, 6);
+            queueDownButton.Name = "queueDownButton";
+            queueDownButton.Size = new Size(100, 50);
+            queueDownButton.TabIndex = 20;
+            queueDownButton.Text = "Move Down";
+            queueDownButton.UseVisualStyleBackColor = false;
+            queueDownButton.Click += queueDownButton_Click;
+            //
+            // clearQueueButton
+            //
+            clearQueueButton.BackColor = Color.FromArgb(244, 63, 94);
+            clearQueueButton.Cursor = Cursors.Hand;
+            clearQueueButton.FlatAppearance.BorderSize = 0;
+            clearQueueButton.FlatStyle = FlatStyle.Flat;
+            clearQueueButton.ForeColor = Color.White;
+            clearQueueButton.Location = new Point(660, 779);
+            clearQueueButton.Margin = new Padding(6, 6, 6, 6);
+            clearQueueButton.Name = "clearQueueButton";
+            clearQueueButton.Size = new Size(100, 50);
+            clearQueueButton.TabIndex = 21;
+            clearQueueButton.Text = "Clear";
+            clearQueueButton.UseVisualStyleBackColor = false;
+            clearQueueButton.Click += clearQueueButton_Click;
+            //
+            // setInstallFolderButton
+            //
+            setInstallFolderButton.BackColor = Color.FromArgb(71, 85, 105);
+            setInstallFolderButton.Cursor = Cursors.Hand;
+            setInstallFolderButton.FlatAppearance.BorderSize = 0;
+            setInstallFolderButton.FlatStyle = FlatStyle.Flat;
+            setInstallFolderButton.ForeColor = Color.White;
+            setInstallFolderButton.Location = new Point(1000, 492);
+            setInstallFolderButton.Margin = new Padding(6, 6, 6, 6);
+            setInstallFolderButton.Name = "setInstallFolderButton";
+            setInstallFolderButton.Size = new Size(215, 42);
+            setInstallFolderButton.TabIndex = 22;
+            setInstallFolderButton.Text = "Set Install Folder...";
+            setInstallFolderButton.UseVisualStyleBackColor = false;
+            setInstallFolderButton.Click += setInstallFolderButton_Click;
+            //
+            // defaultInstallFolderButton
+            //
+            defaultInstallFolderButton.BackColor = Color.FromArgb(71, 85, 105);
+            defaultInstallFolderButton.Cursor = Cursors.Hand;
+            defaultInstallFolderButton.FlatAppearance.BorderSize = 0;
+            defaultInstallFolderButton.FlatStyle = FlatStyle.Flat;
+            defaultInstallFolderButton.ForeColor = Color.White;
+            defaultInstallFolderButton.Location = new Point(1225, 492);
+            defaultInstallFolderButton.Margin = new Padding(6, 6, 6, 6);
+            defaultInstallFolderButton.Name = "defaultInstallFolderButton";
+            defaultInstallFolderButton.Size = new Size(238, 42);
+            defaultInstallFolderButton.TabIndex = 23;
+            defaultInstallFolderButton.Text = "Use Default Folder";
+            defaultInstallFolderButton.UseVisualStyleBackColor = false;
+            defaultInstallFolderButton.Click += defaultInstallFolderButton_Click;
+            //
+            // steamManifestCheckBox
+            //
+            steamManifestCheckBox.BackColor = Color.FromArgb(10, 14, 23);
+            steamManifestCheckBox.Checked = true;
+            steamManifestCheckBox.CheckState = CheckState.Checked;
+            steamManifestCheckBox.Enabled = false;
+            steamManifestCheckBox.FlatAppearance.BorderColor = Color.FromArgb(56, 189, 248);
+            steamManifestCheckBox.FlatAppearance.CheckedBackColor = Color.FromArgb(14, 165, 233);
+            steamManifestCheckBox.FlatAppearance.MouseDownBackColor = Color.FromArgb(17, 24, 39);
+            steamManifestCheckBox.FlatAppearance.MouseOverBackColor = Color.FromArgb(24, 32, 50);
+            steamManifestCheckBox.FlatStyle = FlatStyle.Flat;
+            steamManifestCheckBox.ForeColor = Color.FromArgb(226, 232, 240);
+            steamManifestCheckBox.Location = new Point(770, 492);
+            steamManifestCheckBox.Margin = new Padding(6, 6, 6, 6);
+            steamManifestCheckBox.Name = "steamManifestCheckBox";
+            steamManifestCheckBox.Size = new Size(218, 42);
+            steamManifestCheckBox.TabIndex = 24;
+            steamManifestCheckBox.Text = "Steam .acf manifest";
+            steamManifestCheckBox.UseVisualStyleBackColor = false;
+            steamManifestCheckBox.CheckedChanged += steamManifestCheckBox_CheckedChanged;
+            //
             // Form1
-            // 
+            //
             AutoScaleDimensions = new SizeF(13F, 32F);
             AutoScaleMode = AutoScaleMode.Font;
             BackColor = Color.FromArgb(10, 14, 23);
             ClientSize = new Size(1486, 960);
-            Controls.Add(checkBox1);
+            Controls.Add(steamManifestCheckBox);
+            Controls.Add(defaultInstallFolderButton);
+            Controls.Add(setInstallFolderButton);
+            Controls.Add(clearQueueButton);
+            Controls.Add(queueDownButton);
+            Controls.Add(queueUpButton);
+            Controls.Add(removeQueueButton);
+            Controls.Add(startQueueButton);
+            Controls.Add(queueList);
+            Controls.Add(queueLabel);
+            Controls.Add(customAppButton);
+            Controls.Add(addToQueueButton);
+            Controls.Add(autoStopCheckBox);
             Controls.Add(versionLabel);
             Controls.Add(toggleLogButton);
             Controls.Add(logBox);
@@ -272,6 +488,18 @@
         private RichTextBox logBox;
         private Button toggleLogButton;
         private Label versionLabel;
-        private CheckBox checkBox1;
+        private CheckBox autoStopCheckBox;
+        private Button addToQueueButton;
+        private Button customAppButton;
+        private Label queueLabel;
+        private ListBox queueList;
+        private Button startQueueButton;
+        private Button removeQueueButton;
+        private Button queueUpButton;
+        private Button queueDownButton;
+        private Button clearQueueButton;
+        private Button setInstallFolderButton;
+        private Button defaultInstallFolderButton;
+        private CheckBox steamManifestCheckBox;
     }
 }
