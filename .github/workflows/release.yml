@@ -1,0 +1,99 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Do not run two releases for the same branch at the same time. If another
+# push lands while a build is running, cancel the older one.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and publish release
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Path version -Raw).Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "The 'version' file is empty."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Building version $version"
+
+      # The in-app update check compares Config.version with the release tag, so
+      # both files must contain the same value before a release is published.
+      - name: Verify in-app version
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $match = Select-String -Path Config.cs -Pattern '\bversion\s*=\s*"([^"]+)"'
+          if (-not $match) {
+            throw "Could not find the version field in Config.cs."
+          }
+
+          $inAppVersion = $match.Matches[0].Groups[1].Value
+          if ($inAppVersion -ne $env:VERSION) {
+            throw "Config.cs says version '$inAppVersion' but the version file says '$env:VERSION'. Update both files before pushing."
+          }
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Restore dependencies
+        run: dotnet restore DiscordGameSpoofer.csproj
+
+      - name: Build and publish
+        shell: pwsh
+        run: |
+          dotnet publish DiscordGameSpoofer.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            --output publish
+
+      - name: Create checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Path publish/DiscordGameSpoofer.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  DiscordGameSpoofer.exe" | Set-Content -Path publish/DiscordGameSpoofer.exe.sha256 -Encoding ascii
+
+      - name: Create or update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Discord Game Spoofer ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            publish/DiscordGameSpoofer.exe
+            publish/DiscordGameSpoofer.exe.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -9,6 +9,10 @@ A simple Windows utility for spoofing Discord-detectable games, mainly built to 
 ## Features
 
 * Spoof Discord Quests by simulating supported games
+* Complete Discord **video quests** without keeping Discord open
+* Auto-detect the Discord token from Discord's local storage, or paste one manually
+* Optional auto-accept and auto-claim for video quests
+* Encrypted token storage with Windows DPAPI
 * Search through Discord-detectable games
 * Start and stop spoofed game processes
 * Track how long each spoofed game has been running
@@ -77,6 +81,32 @@ The app never overwrites an existing `appmanifest_*.acf` file. Manifests created
 4. Click **Start Queue**.
 
 Each queued game runs for 20 minutes, then closes and starts the next one. Clicking **Stop** while a queued game is running pauses the queue; click **Start Queue** to continue with the remaining games. **Clear** removes the waiting games but lets the current game finish normally.
+
+### Video quests
+
+The **Video Quests** tab completes quests that require watching a video. Discord does not need to stay open while the progress is sent.
+
+1. Open the **Video Quests** tab.
+2. Get a token:
+   * Click **Auto-detect** to read the token from Discord's encrypted local storage, or
+   * Paste a Discord user token into the box yourself.
+   * If the box is empty when you click **Start**, the app runs Auto-detect automatically.
+3. Leave **Remember token** ticked if you want the token saved for next time.
+4. Click **Start**.
+5. Start a video quest in Discord, then close Discord if you want. If **Auto-accept video quests** is ticked, the app enrolls in new video quests for you.
+6. Keep Discord Game Spoofer open until the progress reaches the target.
+
+The tab polls `GET /api/v9/quests/@me` every 20 seconds. For an enrolled video quest it sends `POST /api/v9/quests/{id}/video-progress` with the real elapsed watch time every 7 to 9.5 seconds. This matches Discord's desktop client, which sends only `{"timestamp": seconds}` to that endpoint and skips it unless `user_status.enrolled_at` is set and the quest is not completed or expired. Only one video quest is advanced at a time.
+
+If Discord answers `404 Not Found` for video progress, the quest is not enrolled for your account or has expired. Discord includes a `user_status` object with an empty `progress` map even for quests you have not accepted yet, so the app treats a quest as enrolled only when `enrolled_at` (or a later stage timestamp) is present. Enable **Auto-accept video quests** to enroll in a quest before watching it. Quest expiry is read from `config.expires_at`; expired quests are ignored.
+
+**Auto-claim rewards** claims the reward with `POST /api/v9/quests/{id}/claim-reward` after Discord marks the quest complete. If Discord has not confirmed completion yet, the claim is retried on a later poll.
+
+**Tokens:** Auto-detect reads Discord's `Local State` key with Windows DPAPI, decrypts the AES-256-GCM token entries in `Local Storage\leveldb`, and checks each candidate against `GET /api/v9/users/@me`. The token is never written to the log. If **Remember token** is on, it is stored in `bin/discord_token.dat`, encrypted with DPAPI for the current Windows user. A Discord token gives full access to the account, so never share it, paste it into an untrusted program, or include it in screenshots and issue reports. Click **Forget** to delete the saved copy.
+
+**Science telemetry:** Discord's own client also posts video progress to `/api/v9/science`. That request uses a separate short analytics token which Discord does not store locally, so **Send science telemetry** is optional and best-effort: it uses the account token instead. The `/video-progress` request is the one that actually advances the quest, so this option can stay off.
+
+> **Warning:** Automating quests may violate Discord's Terms of Service. Quest automation has been linked to account suspensions since April 2026. Only use an account you are willing to lose.
 
 ### Custom application
 

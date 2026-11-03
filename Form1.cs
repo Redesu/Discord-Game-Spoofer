@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -101,11 +102,19 @@ namespace DiscordGameSpoofer
             public string Os { get; set; } = "";
         }
 
+        private const int DwmwaUseImmersiveDarkMode = 20;
+        private const int DwmwaUseImmersiveDarkModeBefore20H1 = 19;
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
         public Form1()
         {
             InitializeComponent();
 
             versionLabel.Text = $"v{Config.version}";
+            videoQuestsPanel.SetExternalLog(log);
+            ShowTab(showVideo: false);
 
             gamesList.Items.Add("Loading...");
             gamesList.Items.Add("This can");
@@ -131,6 +140,35 @@ namespace DiscordGameSpoofer
             FormClosing += Form1_FormClosing;
 
             _ = InitializeAsync();
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyDarkTitleBar();
+        }
+
+        private void ApplyDarkTitleBar()
+        {
+            try
+            {
+                int enabled = 1;
+
+                // Windows 11 and Windows 10 2004+. Older Windows 10 builds use
+                // attribute 19 instead.
+                if (DwmSetWindowAttribute(Handle, DwmwaUseImmersiveDarkMode, ref enabled, sizeof(int)) != 0)
+                {
+                    DwmSetWindowAttribute(
+                        Handle,
+                        DwmwaUseImmersiveDarkModeBefore20H1,
+                        ref enabled,
+                        sizeof(int));
+                }
+            }
+            catch
+            {
+                // Dark title bars are cosmetic and unavailable on some Windows versions.
+            }
         }
 
         private async Task InitializeAsync()
@@ -1928,9 +1966,35 @@ namespace DiscordGameSpoofer
             }
         }
 
+        private void navGamesButton_Click(object? sender, EventArgs e)
+        {
+            ShowTab(showVideo: false);
+        }
+
+        private void navVideoButton_Click(object? sender, EventArgs e)
+        {
+            ShowTab(showVideo: true);
+        }
+
+        private void ShowTab(bool showVideo)
+        {
+            if (gamesHost.Visible == !showVideo && videoHost.Visible == showVideo)
+                return;
+
+            gamesHost.Visible = !showVideo;
+            videoHost.Visible = showVideo;
+
+            navGamesButton.BackColor = showVideo ? Color.FromArgb(24, 32, 50) : Color.FromArgb(14, 165, 233);
+            navVideoButton.BackColor = showVideo ? Color.FromArgb(14, 165, 233) : Color.FromArgb(24, 32, 50);
+
+            if (showVideo)
+                log("Opened the Video Quests tab.");
+        }
+
         private void Form1_FormClosing(object? sender, FormClosingEventArgs e)
         {
             gameTimer.Stop();
+            videoQuestsPanel.Shutdown();
 
             foreach (RunningGame game in runningGames)
             {

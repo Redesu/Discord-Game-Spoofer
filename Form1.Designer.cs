@@ -54,6 +54,11 @@ namespace DiscordGameSpoofer
             setInstallFolderButton = new Button();
             defaultInstallFolderButton = new Button();
             steamManifestCheckBox = new CheckBox();
+            navGamesButton = new Button();
+            navVideoButton = new Button();
+            gamesHost = new Panel();
+            videoHost = new Panel();
+            videoQuestsPanel = new VideoQuestsPanel();
             SuspendLayout();
             //
             // gamesList
@@ -433,37 +438,99 @@ namespace DiscordGameSpoofer
             steamManifestCheckBox.UseVisualStyleBackColor = false;
             steamManifestCheckBox.CheckedChanged += steamManifestCheckBox_CheckedChanged;
             //
+            // navGamesButton
+            //
+            navGamesButton.BackColor = Color.FromArgb(14, 165, 233);
+            navGamesButton.Cursor = Cursors.Hand;
+            navGamesButton.FlatAppearance.BorderSize = 0;
+            navGamesButton.FlatStyle = FlatStyle.Flat;
+            navGamesButton.Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold);
+            navGamesButton.ForeColor = Color.White;
+            navGamesButton.Location = new Point(22, 8);
+            navGamesButton.Name = "navGamesButton";
+            navGamesButton.Size = new Size(170, 40);
+            navGamesButton.TabIndex = 25;
+            navGamesButton.Text = "Game Spoofing";
+            navGamesButton.UseVisualStyleBackColor = false;
+            navGamesButton.Click += navGamesButton_Click;
+            //
+            // navVideoButton
+            //
+            navVideoButton.BackColor = Color.FromArgb(24, 32, 50);
+            navVideoButton.Cursor = Cursors.Hand;
+            navVideoButton.FlatAppearance.BorderSize = 0;
+            navVideoButton.FlatStyle = FlatStyle.Flat;
+            navVideoButton.Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold);
+            navVideoButton.ForeColor = Color.White;
+            navVideoButton.Location = new Point(200, 8);
+            navVideoButton.Name = "navVideoButton";
+            navVideoButton.Size = new Size(170, 40);
+            navVideoButton.TabIndex = 26;
+            navVideoButton.Text = "Video Quests";
+            navVideoButton.UseVisualStyleBackColor = false;
+            navVideoButton.Click += navVideoButton_Click;
+            //
+            // gamesHost
+            //
+            gamesHost.BackColor = Color.FromArgb(10, 14, 23);
+            gamesHost.Location = new Point(0, 56);
+            gamesHost.Name = "gamesHost";
+            gamesHost.Size = new Size(1486, 936);
+            gamesHost.TabIndex = 27;
+            //
+            // videoHost
+            //
+            videoHost.BackColor = Color.FromArgb(10, 14, 23);
+            videoHost.Location = new Point(0, 56);
+            videoHost.Name = "videoHost";
+            videoHost.Size = new Size(1486, 936);
+            videoHost.TabIndex = 28;
+            videoHost.Visible = false;
+            videoHost.Controls.Add(videoQuestsPanel);
+            //
+            // videoQuestsPanel
+            //
+            videoQuestsPanel.Dock = DockStyle.Fill;
+            videoQuestsPanel.Location = new Point(0, 0);
+            videoQuestsPanel.Name = "videoQuestsPanel";
+            videoQuestsPanel.Size = new Size(1486, 936);
+            videoQuestsPanel.TabIndex = 0;
+            //
             // Form1
             //
-            AutoScaleDimensions = new SizeF(13F, 32F);
+            AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             BackColor = Color.FromArgb(10, 14, 23);
-            ClientSize = new Size(1486, 960);
-            Controls.Add(steamManifestCheckBox);
-            Controls.Add(defaultInstallFolderButton);
-            Controls.Add(setInstallFolderButton);
-            Controls.Add(clearQueueButton);
-            Controls.Add(queueDownButton);
-            Controls.Add(queueUpButton);
-            Controls.Add(removeQueueButton);
-            Controls.Add(startQueueButton);
-            Controls.Add(queueList);
-            Controls.Add(queueLabel);
-            Controls.Add(customAppButton);
-            Controls.Add(addToQueueButton);
-            Controls.Add(autoStopCheckBox);
-            Controls.Add(versionLabel);
-            Controls.Add(toggleLogButton);
-            Controls.Add(logBox);
-            Controls.Add(runningGamesTime);
-            Controls.Add(label2);
-            Controls.Add(detailsBox);
-            Controls.Add(startButton);
-            Controls.Add(stopButton);
-            Controls.Add(label1);
-            Controls.Add(runningGamesList);
-            Controls.Add(searchBox);
-            Controls.Add(gamesList);
+            ClientSize = new Size(1486, 992);
+            Controls.Add(navVideoButton);
+            Controls.Add(navGamesButton);
+            Controls.Add(videoHost);
+            Controls.Add(gamesHost);
+            gamesHost.Controls.Add(steamManifestCheckBox);
+            gamesHost.Controls.Add(defaultInstallFolderButton);
+            gamesHost.Controls.Add(setInstallFolderButton);
+            gamesHost.Controls.Add(clearQueueButton);
+            gamesHost.Controls.Add(queueDownButton);
+            gamesHost.Controls.Add(queueUpButton);
+            gamesHost.Controls.Add(removeQueueButton);
+            gamesHost.Controls.Add(startQueueButton);
+            gamesHost.Controls.Add(queueList);
+            gamesHost.Controls.Add(queueLabel);
+            gamesHost.Controls.Add(customAppButton);
+            gamesHost.Controls.Add(addToQueueButton);
+            gamesHost.Controls.Add(autoStopCheckBox);
+            gamesHost.Controls.Add(versionLabel);
+            gamesHost.Controls.Add(toggleLogButton);
+            gamesHost.Controls.Add(logBox);
+            gamesHost.Controls.Add(runningGamesTime);
+            gamesHost.Controls.Add(label2);
+            gamesHost.Controls.Add(detailsBox);
+            gamesHost.Controls.Add(startButton);
+            gamesHost.Controls.Add(stopButton);
+            gamesHost.Controls.Add(label1);
+            gamesHost.Controls.Add(runningGamesList);
+            gamesHost.Controls.Add(searchBox);
+            gamesHost.Controls.Add(gamesList);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             Icon = (Icon)resources.GetObject("$this.Icon");
             Margin = new Padding(6, 6, 6, 6);
@@ -501,5 +568,10 @@ namespace DiscordGameSpoofer
         private Button setInstallFolderButton;
         private Button defaultInstallFolderButton;
         private CheckBox steamManifestCheckBox;
+        private Button navGamesButton;
+        private Button navVideoButton;
+        private Panel gamesHost;
+        private Panel videoHost;
+        private VideoQuestsPanel videoQuestsPanel;
     }
 }
