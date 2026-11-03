@@ -43,14 +43,23 @@ namespace DiscordGameSpoofer
         private readonly DarkCheckBox _scienceCheckBox = new DarkCheckBox();
         private readonly DarkCheckBox _showTokenCheckBox = new DarkCheckBox();
         private readonly Label _statusLabel = new Label();
+        private readonly Label _titleLabel = new Label();
+        private readonly Label _subtitleLabel = new Label();
+        private readonly Label _tokenLabel = new Label();
+        private readonly Label _warningLabel = new Label();
+        private readonly Label _questsLabel = new Label();
+        private readonly Label _logLabel = new Label();
         private readonly QuestListView _questList = new QuestListView();
         private readonly ImageList _questRowImages = new ImageList();
         private readonly Font _questHeaderFont = new Font("Segoe UI Semibold", 9F, FontStyle.Bold);
         private readonly RichTextBox _logBox = new RichTextBox();
 
+        private float _uiScale = 1f;
+
         private bool _shutdown;
         private bool _loadedSavedToken;
         private bool _updatingTokenBox;
+        private bool _applyingLayout;
 
         private Action<string>? ExternalLog { get; set; }
 
@@ -83,30 +92,21 @@ namespace DiscordGameSpoofer
             Font = new Font("Segoe UI", 9F);
             Name = "videoQuestsPanel";
 
-            Label title = new Label
-            {
-                AutoSize = true,
-                Font = new Font("Segoe UI Semibold", 16F, FontStyle.Bold),
-                ForeColor = AccentColor,
-                Location = new Point(22, 16),
-                Text = "Video Quests",
-            };
+            _titleLabel.AutoSize = true;
+            _titleLabel.Font = new Font("Segoe UI Semibold", 16F, FontStyle.Bold);
+            _titleLabel.ForeColor = AccentColor;
+            _titleLabel.Location = new Point(22, 16);
+            _titleLabel.Text = "Video Quests";
 
-            Label subtitle = new Label
-            {
-                AutoSize = true,
-                ForeColor = MutedColor,
-                Location = new Point(22, 56),
-                Text = "Start a Discord video quest and this tab completes it, even when Discord is closed.",
-            };
+            _subtitleLabel.AutoSize = true;
+            _subtitleLabel.ForeColor = MutedColor;
+            _subtitleLabel.Location = new Point(22, 56);
+            _subtitleLabel.Text = "Start a Discord video quest and this tab completes it, even when Discord is closed.";
 
-            Label tokenLabel = new Label
-            {
-                AutoSize = true,
-                ForeColor = TextColor,
-                Location = new Point(22, 100),
-                Text = "Discord token",
-            };
+            _tokenLabel.AutoSize = true;
+            _tokenLabel.ForeColor = TextColor;
+            _tokenLabel.Location = new Point(22, 100);
+            _tokenLabel.Text = "Discord token";
 
             _tokenBox.BackColor = InputColor;
             _tokenBox.BorderStyle = BorderStyle.FixedSingle;
@@ -166,24 +166,18 @@ namespace DiscordGameSpoofer
             _statusLabel.MaximumSize = new Size(1440, 0);
             _statusLabel.Text = "Stopped.";
 
-            Label warningLabel = new Label
-            {
-                AutoSize = false,
-                ForeColor = WarningColor,
-                Location = new Point(22, 252),
-                Size = new Size(1440, 42),
-                Text = "Warning: Discord may suspend accounts for automated quest progress. "
-                    + "Only use an account you are willing to lose. Science telemetry is optional and best-effort.",
-            };
+            _warningLabel.AutoSize = false;
+            _warningLabel.ForeColor = WarningColor;
+            _warningLabel.Location = new Point(22, 252);
+            _warningLabel.Size = new Size(1440, 42);
+            _warningLabel.Text = "Warning: Discord may suspend accounts for automated quest progress. "
+                + "Only use an account you are willing to lose. Science telemetry is optional and best-effort.";
 
-            Label questsLabel = new Label
-            {
-                AutoSize = true,
-                Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold),
-                ForeColor = AccentColor,
-                Location = new Point(22, 306),
-                Text = "Video quests",
-            };
+            _questsLabel.AutoSize = true;
+            _questsLabel.Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold);
+            _questsLabel.ForeColor = AccentColor;
+            _questsLabel.Location = new Point(22, 306);
+            _questsLabel.Text = "Video quests";
 
             _questList.BackColor = SurfaceColor;
             _questList.BorderStyle = BorderStyle.None;
@@ -218,14 +212,11 @@ namespace DiscordGameSpoofer
             _questList.Columns.Add("Expires", 300);
             FillQuestColumns();
 
-            Label logLabel = new Label
-            {
-                AutoSize = true,
-                Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold),
-                ForeColor = AccentColor,
-                Location = new Point(22, 652),
-                Text = "Video quest log",
-            };
+            _logLabel.AutoSize = true;
+            _logLabel.Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold);
+            _logLabel.ForeColor = AccentColor;
+            _logLabel.Location = new Point(22, 652);
+            _logLabel.Text = "Video quest log";
 
             _logBox.BackColor = SurfaceColor;
             _logBox.BorderStyle = BorderStyle.None;
@@ -238,9 +229,9 @@ namespace DiscordGameSpoofer
             _logBox.TabIndex = 15;
             _logBox.Text = "";
 
-            Controls.Add(title);
-            Controls.Add(subtitle);
-            Controls.Add(tokenLabel);
+            Controls.Add(_titleLabel);
+            Controls.Add(_subtitleLabel);
+            Controls.Add(_tokenLabel);
             Controls.Add(_tokenBox);
             Controls.Add(_detectButton);
             Controls.Add(_saveButton);
@@ -253,10 +244,10 @@ namespace DiscordGameSpoofer
             Controls.Add(_scienceCheckBox);
             Controls.Add(_showTokenCheckBox);
             Controls.Add(_statusLabel);
-            Controls.Add(warningLabel);
-            Controls.Add(questsLabel);
+            Controls.Add(_warningLabel);
+            Controls.Add(_questsLabel);
             Controls.Add(_questList);
-            Controls.Add(logLabel);
+            Controls.Add(_logLabel);
             Controls.Add(_logBox);
 
             ResumeLayout(false);
@@ -286,6 +277,230 @@ namespace DiscordGameSpoofer
             SetButtonEnabled(_startButton, true);
 
             AppendLog("Loaded the saved Discord token.");
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+
+            if (IsHandleCreated && ClientSize.Width > 0 && !_applyingLayout)
+                ApplyResponsiveLayout(_uiScale);
+        }
+
+        /// <summary>
+        /// Places every control from the panel's current size. The panel is docked,
+        /// so this runs when the main window is resized or maximized.
+        /// </summary>
+        public void ApplyResponsiveLayout(float uiScale)
+        {
+            _uiScale = Math.Max(0.5f, uiScale);
+
+            int ScaleValue(float value) => Math.Max(1, (int)Math.Round(value * _uiScale));
+
+            int width = ClientSize.Width;
+            int height = ClientSize.Height;
+
+            if (_applyingLayout || width <= 0 || height <= 0)
+                return;
+
+            _applyingLayout = true;
+            SuspendLayout();
+            bool autoScrollChanged = false;
+
+            try
+            {
+                int pad = ScaleValue(22);
+                int gap = ScaleValue(10);
+                int right = width - pad;
+
+                _titleLabel.Location = new Point(pad, ScaleValue(14));
+                _subtitleLabel.Location = new Point(pad, ScaleValue(48));
+                _tokenLabel.Location = new Point(pad, ScaleValue(84));
+
+                // Token row: the token box takes the remaining width, the buttons stay fixed.
+                int rowTop = ScaleValue(110);
+                int rowHeight = ScaleValue(40);
+                int detectWidth = ScaleValue(150);
+                int saveWidth = ScaleValue(100);
+                int forgetWidth = ScaleValue(100);
+                int startWidth = ScaleValue(140);
+                int stopWidth = ScaleValue(140);
+                int checkTop;
+
+                int tokenButtonsWidth = detectWidth + saveWidth + forgetWidth + startWidth + stopWidth + gap * 4;
+                bool wrapTokenButtons =
+                    tokenButtonsWidth + ScaleValue(200) + gap > width - pad * 2;
+
+                if (wrapTokenButtons)
+                {
+                    // Not enough width for the token box and all buttons: give the
+                    // token box a full row and put the buttons on the row below.
+                    _tokenBox.SetBounds(pad, rowTop + ScaleValue(2), width - pad * 2, ScaleValue(36));
+
+                    int buttonsTop = rowTop + rowHeight + gap;
+                    _stopButton.SetBounds(right - stopWidth, buttonsTop, stopWidth, rowHeight);
+                    _startButton.SetBounds(
+                        _stopButton.Left - gap - startWidth,
+                        buttonsTop,
+                        startWidth,
+                        rowHeight);
+                    _forgetButton.SetBounds(
+                        _startButton.Left - gap - forgetWidth,
+                        buttonsTop,
+                        forgetWidth,
+                        rowHeight);
+                    _saveButton.SetBounds(
+                        _forgetButton.Left - gap - saveWidth,
+                        buttonsTop,
+                        saveWidth,
+                        rowHeight);
+                    _detectButton.SetBounds(
+                        _saveButton.Left - gap - detectWidth,
+                        buttonsTop,
+                        detectWidth,
+                        rowHeight);
+
+                    checkTop = buttonsTop + rowHeight + ScaleValue(12);
+                }
+                else
+                {
+                    _stopButton.SetBounds(right - stopWidth, rowTop, stopWidth, rowHeight);
+                    _startButton.SetBounds(
+                        _stopButton.Left - gap - startWidth,
+                        rowTop,
+                        startWidth,
+                        rowHeight);
+                    _forgetButton.SetBounds(
+                        _startButton.Left - gap - forgetWidth,
+                        rowTop,
+                        forgetWidth,
+                        rowHeight);
+                    _saveButton.SetBounds(
+                        _forgetButton.Left - gap - saveWidth,
+                        rowTop,
+                        saveWidth,
+                        rowHeight);
+                    _detectButton.SetBounds(
+                        _saveButton.Left - gap - detectWidth,
+                        rowTop,
+                        detectWidth,
+                        rowHeight);
+
+                    int tokenWidth = Math.Max(ScaleValue(140), _detectButton.Left - gap - pad);
+                    _tokenBox.SetBounds(pad, rowTop + ScaleValue(2), tokenWidth, ScaleValue(36));
+                    checkTop = rowTop + rowHeight + ScaleValue(12);
+                }
+
+                // Options wrap onto a second row on narrow windows.
+                int checkHeight = ScaleValue(28);
+                int checkGap = ScaleValue(10);
+                int rememberWidth = ScaleValue(205);
+                int acceptWidth = ScaleValue(245);
+                int claimWidth = ScaleValue(200);
+                int scienceWidth = ScaleValue(215);
+                int showTokenWidth = ScaleValue(140);
+
+                bool singleCheckRow =
+                    rememberWidth + acceptWidth + claimWidth + scienceWidth + showTokenWidth + checkGap * 4
+                    <= width - pad * 2;
+
+                int checkX = pad;
+                _rememberCheckBox.SetBounds(checkX, checkTop, rememberWidth, checkHeight);
+                checkX += rememberWidth + checkGap;
+                _autoAcceptCheckBox.SetBounds(checkX, checkTop, acceptWidth, checkHeight);
+                checkX += acceptWidth + checkGap;
+                _autoClaimCheckBox.SetBounds(checkX, checkTop, claimWidth, checkHeight);
+
+                if (singleCheckRow)
+                {
+                    checkX += claimWidth + checkGap;
+                    _scienceCheckBox.SetBounds(checkX, checkTop, scienceWidth, checkHeight);
+                    checkX += scienceWidth + checkGap;
+                    _showTokenCheckBox.SetBounds(checkX, checkTop, showTokenWidth, checkHeight);
+                }
+                else
+                {
+                    int secondRowTop = checkTop + checkHeight + ScaleValue(4);
+                    _scienceCheckBox.SetBounds(pad, secondRowTop, scienceWidth, checkHeight);
+                    _showTokenCheckBox.SetBounds(
+                        pad + scienceWidth + checkGap,
+                        secondRowTop,
+                        showTokenWidth,
+                        checkHeight);
+                }
+
+                int checkRowsHeight = singleCheckRow
+                    ? checkHeight
+                    : checkHeight * 2 + ScaleValue(4);
+
+                int statusTop = checkTop + checkRowsHeight + ScaleValue(10);
+                _statusLabel.Location = new Point(pad, statusTop);
+                _statusLabel.MaximumSize = new Size(Math.Max(ScaleValue(200), width - pad * 2), 0);
+
+                int warningTop = statusTop + ScaleValue(34);
+                int warningHeight = ScaleValue(38);
+                _warningLabel.SetBounds(pad, warningTop, width - pad * 2, warningHeight);
+
+                int questsLabelTop = warningTop + warningHeight + ScaleValue(8);
+                _questsLabel.Location = new Point(pad, questsLabelTop);
+
+                int listTop = questsLabelTop + ScaleValue(32);
+
+                // If the window is too short for the list and log, allow the tab to
+                // scroll instead of letting the two sections overlap.
+                int minimumContentHeight = listTop
+                    + ScaleValue(80)
+                    + ScaleValue(10)
+                    + ScaleValue(26)
+                    + ScaleValue(70)
+                    + ScaleValue(8);
+
+                bool needsScroll = minimumContentHeight > height;
+                autoScrollChanged = AutoScroll != needsScroll;
+                AutoScrollMinSize = needsScroll ? new Size(0, minimumContentHeight) : Size.Empty;
+                AutoScroll = needsScroll;
+
+                int layoutHeight = Math.Max(height, minimumContentHeight);
+                int bottom = layoutHeight - ScaleValue(8);
+                int available = Math.Max(ScaleValue(150), bottom - listTop);
+
+                int logHeight = Math.Max(ScaleValue(70), (int)Math.Round(available * 0.36));
+                int logTop = bottom - logHeight;
+                int logLabelTop = logTop - ScaleValue(26);
+                int listHeight = Math.Max(ScaleValue(80), logLabelTop - ScaleValue(10) - listTop);
+
+                int contentWidth = Math.Max(ScaleValue(200), width - pad * 2);
+                _questList.SetBounds(pad, listTop, contentWidth, listHeight);
+                _logLabel.Location = new Point(pad, logLabelTop);
+                _logBox.SetBounds(pad, logTop, contentWidth, logHeight);
+
+                // Scale the quest columns with the window and let the last column fill.
+                int[] baseWidths = { 380, 300, 220, 230, 300 };
+                int baseTotal = 0;
+                foreach (int value in baseWidths)
+                    baseTotal += value;
+
+                float fit = Math.Min(1f, (float)contentWidth / (baseTotal * _uiScale));
+
+                for (int i = 0; i < _questList.Columns.Count && i < baseWidths.Length; i++)
+                {
+                    _questList.Columns[i].Width = Math.Max(
+                        ScaleValue(50),
+                        (int)Math.Round(baseWidths[i] * _uiScale * fit));
+                }
+
+                FillQuestColumns();
+            }
+            finally
+            {
+                ResumeLayout(true);
+                _applyingLayout = false;
+            }
+
+            // Showing or hiding a scrollbar changes the usable width. Lay out once
+            // more with the final width so nothing sits under the scrollbar.
+            if (autoScrollChanged && IsHandleCreated && !IsDisposed)
+                BeginInvoke(new Action(() => ApplyResponsiveLayout(_uiScale)));
         }
 
         private static void StyleButton(Button button, string text, Color backColor, Point location, Size size)

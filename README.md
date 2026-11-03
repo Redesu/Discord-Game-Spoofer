@@ -1,36 +1,56 @@
 # Discord Game Spoofer
 
-A simple Windows utility for spoofing Discord-detectable games, mainly built to help spoof Discord Quests without needing to launch or install the actual game.
+A Windows utility for spoofing Discord-detectable games and completing Discord Quests without installing or launching the real game.
 
-## Screenshot
+This is the **[Redesu](https://github.com/Redesu) fork** of [devAxri/Discord-Game-Spoofer](https://github.com/devAxri/Discord-Game-Spoofer). It keeps the original game spoofer and adds queueing, Steam manifest support, and a full video-quest automation tab.
 
-![Discord Game Spoofer Screenshot](Github/preview.png)
+## Screenshots
+
+![Discord Game Spoofer](Github/preview.png)
+
+![Video Quests tab](Github/preview-video.png)
+
+## What's new in this fork
+
+* **Game queue** - queue several games and run them back to back, with automatic 20-minute rotation.
+* **Steam `.acf` manifests** - create a matching Steam manifest and place the spoof executable inside the Steam library, so quests that verify a Steam install can detect the game.
+* **Video Quests tab** - watch and advance Discord video quests without keeping Discord open.
+* **Auto-accept and auto-claim** - enroll in new video quests automatically and claim rewards once Discord marks them complete.
+* **Token auto-detection** - read the Discord token from Discord's local storage, or paste one manually.
+* **Encrypted token storage** - saved tokens are protected with Windows DPAPI for the current user.
+* **Custom applications** - add games that are missing from Discord's list.
+* **Per-game install folders** - save each spoof executable into that game's real install folder.
+* **Visible spoof hosts** - spoofed processes show a small window so Discord detects them reliably.
+* **Random executable sizes** - every generated spoof executable has a different size.
+* **Fits any screen** - the window opens centered at a size that fits the current display, and the layout reflows when resized or maximized.
+* **Automated releases** - GitHub Actions builds a self-contained Windows executable and attaches a SHA-256 checksum.
 
 ## Features
 
 * Spoof Discord Quests by simulating supported games
-* Complete Discord **video quests** without keeping Discord open
-* Auto-detect the Discord token from Discord's local storage, or paste one manually
-* Optional auto-accept and auto-claim for video quests
-* Encrypted token storage with Windows DPAPI
 * Search through Discord-detectable games
 * Start and stop spoofed game processes
 * Track how long each spoofed game has been running
 * Queue multiple games and run them one after another
 * Reorder, remove, or clear queued games
-* Optional auto-stop after 20 minutes (queue games always auto-stop)
+* Optional auto-stop after 20 minutes (queued games always auto-stop)
 * Add custom applications that are not in the Discord list
-* Spoof processes show a small visible window so Discord can detect them
 * Place a game's spoof executable in its real install folder per game
 * Optional Steam `.acf` manifest so quests that verify Steam installs can detect the game
 * Every generated spoof exe gets a different random file size
+* Complete Discord **video quests** without keeping Discord open
+* Auto-detect the Discord token from Discord's local storage, or paste one manually
+* Optional auto-accept and auto-claim for video quests
+* Encrypted token storage with Windows DPAPI
 * View executable details for selected games
 * Built-in update check
-* Simple Windows Forms interface
+* Responsive Windows Forms interface that works on small and large displays
 
 ## Download
 
-Grab the latest build from the [Releases](https://github.com/devAxri/Discord-Game-Spoofer/releases) page.
+Grab the latest build from the [Releases](https://github.com/Redesu/Discord-Game-Spoofer/releases) page. Releases are self-contained Windows x64 builds, so .NET does not need to be installed separately.
+
+The original project is available at [devAxri/Discord-Game-Spoofer](https://github.com/devAxri/Discord-Game-Spoofer).
 
 ## Usage
 
@@ -120,9 +140,13 @@ If a game is not in the list:
 
 The custom app appears in the games list and can be started or queued like any other game. Custom apps are saved in `bin/custom_apps.json`.
 
+### Window size
+
+The main window opens centered and sized for the screen it is on. It can be resized or maximized, and every list, text box, and button reflows to the available space. On smaller displays the window shrinks down to a usable minimum instead of opening off-screen.
+
 ## Notes
 
-This project is not affiliated with Discord. Use it responsibly and at your own risk.
+This project is not affiliated with Discord or with the original author. Use it responsibly and at your own risk.
 
 ## Contributing
 

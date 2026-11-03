@@ -41,7 +41,7 @@ namespace DiscordGameSpoofer
             logBox = new RichTextBox();
             toggleLogButton = new Button();
             versionLabel = new Label();
-            autoStopCheckBox = new CheckBox();
+            autoStopCheckBox = new DarkCheckBox();
             addToQueueButton = new Button();
             customAppButton = new Button();
             queueLabel = new Label();
@@ -53,7 +53,7 @@ namespace DiscordGameSpoofer
             clearQueueButton = new Button();
             setInstallFolderButton = new Button();
             defaultInstallFolderButton = new Button();
-            steamManifestCheckBox = new CheckBox();
+            steamManifestCheckBox = new DarkCheckBox();
             navGamesButton = new Button();
             navVideoButton = new Button();
             gamesHost = new Panel();
@@ -232,11 +232,6 @@ namespace DiscordGameSpoofer
             // autoStopCheckBox
             //
             autoStopCheckBox.BackColor = Color.FromArgb(10, 14, 23);
-            autoStopCheckBox.FlatAppearance.BorderColor = Color.FromArgb(56, 189, 248);
-            autoStopCheckBox.FlatAppearance.CheckedBackColor = Color.FromArgb(14, 165, 233);
-            autoStopCheckBox.FlatAppearance.MouseDownBackColor = Color.FromArgb(17, 24, 39);
-            autoStopCheckBox.FlatAppearance.MouseOverBackColor = Color.FromArgb(24, 32, 50);
-            autoStopCheckBox.FlatStyle = FlatStyle.Flat;
             autoStopCheckBox.ForeColor = Color.FromArgb(226, 232, 240);
             autoStopCheckBox.Location = new Point(615, 26);
             autoStopCheckBox.Margin = new Padding(6, 6, 6, 6);
@@ -423,11 +418,6 @@ namespace DiscordGameSpoofer
             steamManifestCheckBox.Checked = true;
             steamManifestCheckBox.CheckState = CheckState.Checked;
             steamManifestCheckBox.Enabled = false;
-            steamManifestCheckBox.FlatAppearance.BorderColor = Color.FromArgb(56, 189, 248);
-            steamManifestCheckBox.FlatAppearance.CheckedBackColor = Color.FromArgb(14, 165, 233);
-            steamManifestCheckBox.FlatAppearance.MouseDownBackColor = Color.FromArgb(17, 24, 39);
-            steamManifestCheckBox.FlatAppearance.MouseOverBackColor = Color.FromArgb(24, 32, 50);
-            steamManifestCheckBox.FlatStyle = FlatStyle.Flat;
             steamManifestCheckBox.ForeColor = Color.FromArgb(226, 232, 240);
             steamManifestCheckBox.Location = new Point(770, 492);
             steamManifestCheckBox.Margin = new Padding(6, 6, 6, 6);
@@ -504,6 +494,7 @@ namespace DiscordGameSpoofer
             ClientSize = new Size(1486, 992);
             Controls.Add(navVideoButton);
             Controls.Add(navGamesButton);
+            Controls.Add(versionLabel);
             Controls.Add(videoHost);
             Controls.Add(gamesHost);
             gamesHost.Controls.Add(steamManifestCheckBox);
@@ -519,7 +510,6 @@ namespace DiscordGameSpoofer
             gamesHost.Controls.Add(customAppButton);
             gamesHost.Controls.Add(addToQueueButton);
             gamesHost.Controls.Add(autoStopCheckBox);
-            gamesHost.Controls.Add(versionLabel);
             gamesHost.Controls.Add(toggleLogButton);
             gamesHost.Controls.Add(logBox);
             gamesHost.Controls.Add(runningGamesTime);
@@ -531,11 +521,12 @@ namespace DiscordGameSpoofer
             gamesHost.Controls.Add(runningGamesList);
             gamesHost.Controls.Add(searchBox);
             gamesHost.Controls.Add(gamesList);
-            FormBorderStyle = FormBorderStyle.FixedSingle;
+            FormBorderStyle = FormBorderStyle.Sizable;
             Icon = (Icon)resources.GetObject("$this.Icon");
             Margin = new Padding(6, 6, 6, 6);
-            MaximizeBox = false;
+            MaximizeBox = true;
             Name = "Form1";
+            StartPosition = FormStartPosition.CenterScreen;
             Text = "Discord Game Spoofer";
             ResumeLayout(false);
             PerformLayout();
@@ -555,7 +546,7 @@ namespace DiscordGameSpoofer
         private RichTextBox logBox;
         private Button toggleLogButton;
         private Label versionLabel;
-        private CheckBox autoStopCheckBox;
+        private DarkCheckBox autoStopCheckBox;
         private Button addToQueueButton;
         private Button customAppButton;
         private Label queueLabel;
@@ -567,7 +558,7 @@ namespace DiscordGameSpoofer
         private Button clearQueueButton;
         private Button setInstallFolderButton;
         private Button defaultInstallFolderButton;
-        private CheckBox steamManifestCheckBox;
+        private DarkCheckBox steamManifestCheckBox;
         private Button navGamesButton;
         private Button navVideoButton;
         private Panel gamesHost;

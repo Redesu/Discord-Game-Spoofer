@@ -41,6 +41,13 @@ namespace DiscordGameSpoofer
 
         bool logShown = false;
 
+        // Layout is based on the designer's original surface. WinForms scales the
+        // controls for the current DPI/font settings before OnLoad, so this factor
+        // lets us rebuild the same layout at any window size without tiny fonts.
+        private float uiScale = 1f;
+        private bool layoutReady = false;
+        private bool applyingLayout = false;
+
         private class SteamLibrary
         {
             public string RootPath { get; set; } = "";
@@ -146,6 +153,303 @@ namespace DiscordGameSpoofer
         {
             base.OnHandleCreated(e);
             ApplyDarkTitleBar();
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+
+            uiScale = GetUiScale();
+            FitWindowToScreen();
+
+            layoutReady = true;
+            ApplyResponsiveLayout();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+
+            if (!layoutReady || applyingLayout || WindowState == FormWindowState.Minimized)
+                return;
+
+            ApplyResponsiveLayout();
+        }
+
+        private float GetUiScale()
+        {
+            SizeF design = AutoScaleDimensions;
+            SizeF current = CurrentAutoScaleDimensions;
+
+            if (design.Width > 0 && current.Width > 0)
+                return Math.Max(0.5f, current.Width / design.Width);
+
+            return Math.Max(0.5f, DeviceDpi / 96f);
+        }
+
+        private int ScaleValue(float value)
+        {
+            return Math.Max(1, (int)Math.Round(value * uiScale));
+        }
+
+        /// <summary>
+        /// Opens the window centered at a size that fits the current screen and
+        /// never grows past the designer size.
+        /// </summary>
+        private void FitWindowToScreen()
+        {
+            Rectangle area = Screen.PrimaryScreen?.WorkingArea ?? Screen.FromControl(this).WorkingArea;
+
+            int chromeWidth = Math.Max(0, Width - ClientSize.Width);
+            int chromeHeight = Math.Max(0, Height - ClientSize.Height);
+            int margin = ScaleValue(24);
+
+            int maxClientWidth = Math.Max(ScaleValue(900), area.Width - chromeWidth - margin * 2);
+            int maxClientHeight = Math.Max(ScaleValue(520), area.Height - chromeHeight - margin * 2);
+
+            int clientWidth = Math.Min(ScaleValue(1366), maxClientWidth);
+            int clientHeight = Math.Min(ScaleValue(860), maxClientHeight);
+
+            // Minimum usable size in device pixels. The layout below is designed to
+            // stay readable all the way down to this size. On screens that cannot
+            // show even that, the window is capped to the available work area.
+            MinimumSize = new Size(
+                Math.Min(ScaleValue(1000), maxClientWidth) + chromeWidth,
+                Math.Min(ScaleValue(600), maxClientHeight) + chromeHeight);
+
+            clientWidth = Math.Max(MinimumSize.Width - chromeWidth, clientWidth);
+            clientHeight = Math.Max(MinimumSize.Height - chromeHeight, clientHeight);
+
+            applyingLayout = true;
+            try
+            {
+                ClientSize = new Size(clientWidth, clientHeight);
+            }
+            finally
+            {
+                applyingLayout = false;
+            }
+
+            Left = area.Left + (area.Width - Width) / 2;
+            Top = area.Top + (area.Height - Height) / 2;
+
+            if (Top < area.Top)
+                Top = area.Top;
+        }
+
+        /// <summary>
+        /// Rebuilds the game tab layout for the current client size. Lists and text
+        /// boxes grow with the window while fonts stay at their normal size.
+        /// </summary>
+        private void ApplyResponsiveLayout()
+        {
+            if (!layoutReady || ClientSize.Width <= 0 || ClientSize.Height <= 0)
+                return;
+
+            applyingLayout = true;
+            SuspendLayout();
+
+            try
+            {
+                int pad = ScaleValue(22);
+                int navHeight = ScaleValue(56);
+                int navButtonWidth = ScaleValue(170);
+                int navButtonHeight = ScaleValue(40);
+                int navButtonGap = ScaleValue(8);
+
+                navGamesButton.SetBounds(pad, ScaleValue(8), navButtonWidth, navButtonHeight);
+                navVideoButton.SetBounds(
+                    pad + navButtonWidth + navButtonGap,
+                    ScaleValue(8),
+                    navButtonWidth,
+                    navButtonHeight);
+
+                versionLabel.Location = new Point(
+                    Math.Max(pad, ClientSize.Width - pad - versionLabel.Width),
+                    ScaleValue(16));
+
+                int contentHeight = Math.Max(ScaleValue(200), ClientSize.Height - navHeight);
+
+                gamesHost.SetBounds(0, navHeight, ClientSize.Width, contentHeight);
+                videoHost.SetBounds(0, navHeight, ClientSize.Width, contentHeight);
+
+                LayoutGamesTab(ClientSize.Width, contentHeight);
+                videoQuestsPanel.ApplyResponsiveLayout(uiScale);
+            }
+            finally
+            {
+                ResumeLayout(true);
+                applyingLayout = false;
+            }
+        }
+
+        private void LayoutGamesTab(int width, int height)
+        {
+            int pad = ScaleValue(22);
+            int gap = ScaleValue(11);
+            int listTop = ScaleValue(94);
+            int leftWidth = ScaleValue(316);
+            int rightX = ScaleValue(349);
+            int rightEdge = width - pad;
+
+            // Left column: search, games list, and the two action buttons.
+            searchBox.SetBounds(pad, ScaleValue(26), Math.Max(ScaleValue(120), leftWidth - ScaleValue(2)), ScaleValue(39));
+
+            int leftButtonHeight = ScaleValue(44);
+            int leftButtonTop = height - ScaleValue(8) - leftButtonHeight;
+            int autoStopHeight = ScaleValue(26);
+            int autoStopTop = leftButtonTop - ScaleValue(8) - autoStopHeight;
+            autoStopCheckBox.SetBounds(pad, autoStopTop, leftWidth, autoStopHeight);
+
+            int gamesListHeight = Math.Max(
+                ScaleValue(80),
+                autoStopTop - ScaleValue(10) - listTop);
+            gamesList.SetBounds(pad, listTop, leftWidth, gamesListHeight);
+
+            int halfButtonWidth = Math.Max(ScaleValue(70), (leftWidth - gap) / 2);
+            addToQueueButton.SetBounds(pad, leftButtonTop, halfButtonWidth, leftButtonHeight);
+            customAppButton.SetBounds(
+                pad + halfButtonWidth + gap,
+                leftButtonTop,
+                halfButtonWidth,
+                leftButtonHeight);
+
+            // Top header: running games title on the left, action buttons on the right.
+            int headerButtonHeight = ScaleValue(49);
+            int headerButtonTop = ScaleValue(26);
+            int maxHeaderButtonWidth = Math.Max(
+                ScaleValue(80),
+                (rightEdge - (rightX + label1.Width + gap) - gap * 2) / 3);
+            int headerButtonWidth = Math.Min(ScaleValue(130), maxHeaderButtonWidth);
+
+            stopButton.SetBounds(
+                rightEdge - headerButtonWidth,
+                headerButtonTop,
+                headerButtonWidth,
+                headerButtonHeight);
+            startButton.SetBounds(
+                stopButton.Left - gap - headerButtonWidth,
+                headerButtonTop,
+                headerButtonWidth,
+                headerButtonHeight);
+            toggleLogButton.SetBounds(
+                startButton.Left - gap - headerButtonWidth,
+                headerButtonTop,
+                headerButtonWidth,
+                headerButtonHeight);
+
+            label1.Location = new Point(rightX, ScaleValue(32));
+
+            // Two equal list rows. The row heights are recomputed on every resize.
+            int toolsHeight = ScaleValue(42);
+            int listGap = ScaleValue(10);
+            int labelHeight = ScaleValue(32);
+            int labelGap = ScaleValue(24);
+            int bottomMargin = ScaleValue(8);
+
+            int fixedHeight = listGap + toolsHeight + listGap + labelHeight + labelGap;
+            int flexibleHeight = Math.Max(
+                ScaleValue(180),
+                height - listTop - fixedHeight - bottomMargin);
+            int topListHeight = flexibleHeight / 2;
+
+            int toolsTop = listTop + topListHeight + listGap;
+            int bottomHeaderTop = toolsTop + toolsHeight + listGap;
+            int bottomListTop = bottomHeaderTop + labelHeight + labelGap;
+            int bottomListHeight = Math.Max(
+                ScaleValue(90),
+                height - bottomMargin - bottomListTop);
+
+            int timeWidth = ScaleValue(139);
+            runningGamesTime.SetBounds(rightEdge - timeWidth, listTop, timeWidth, topListHeight);
+            runningGamesList.SetBounds(
+                rightX,
+                listTop,
+                Math.Max(ScaleValue(120), runningGamesTime.Left - gap - rightX),
+                topListHeight);
+
+            // Install folder and Steam options sit on their own row below the running list.
+            int toolsGap = ScaleValue(11);
+            int steamWidth = ScaleValue(200);
+            int installWidth = ScaleValue(190);
+            int defaultWidth = ScaleValue(210);
+            int toolsWidth = steamWidth + installWidth + defaultWidth + toolsGap * 2;
+
+            // On very narrow displays shrink the three controls so they stay on screen.
+            int toolsAvailable = Math.Max(ScaleValue(200), rightEdge - rightX);
+            if (toolsWidth > toolsAvailable)
+            {
+                float toolFit = (float)toolsAvailable / toolsWidth;
+                steamWidth = Math.Max(ScaleValue(110), (int)Math.Round(steamWidth * toolFit));
+                installWidth = Math.Max(ScaleValue(110), (int)Math.Round(installWidth * toolFit));
+                defaultWidth = Math.Max(ScaleValue(110), (int)Math.Round(defaultWidth * toolFit));
+                toolsWidth = steamWidth + installWidth + defaultWidth + toolsGap * 2;
+            }
+
+            int toolsX = Math.Max(rightX, rightEdge - toolsWidth);
+
+            steamManifestCheckBox.SetBounds(toolsX, toolsTop, steamWidth, toolsHeight);
+            setInstallFolderButton.SetBounds(
+                steamManifestCheckBox.Right + toolsGap,
+                toolsTop,
+                installWidth,
+                toolsHeight);
+            defaultInstallFolderButton.SetBounds(
+                setInstallFolderButton.Right + toolsGap,
+                toolsTop,
+                defaultWidth,
+                toolsHeight);
+
+            // Bottom row: queue on the left, details/log on the right.
+            int rightWidth = Math.Max(ScaleValue(320), rightEdge - rightX);
+            int queueWidth = Math.Max(ScaleValue(160), (int)Math.Round(rightWidth * 0.27));
+            int singleButtonWidth = ScaleValue(100);
+            int queueButtonGap = ScaleValue(6);
+
+            // With very little height, two button columns keep every queue action
+            // visible instead of overflowing below the window.
+            int buttonColumns = bottomListHeight < ScaleValue(154) ? 2 : 1;
+            int buttonAreaWidth = singleButtonWidth * buttonColumns
+                + (buttonColumns > 1 ? queueButtonGap : 0);
+            int queueButtonX = rightX + queueWidth + gap;
+            int detailsX = queueButtonX + buttonAreaWidth + ScaleValue(10);
+            int detailsWidth = Math.Max(ScaleValue(120), rightEdge - detailsX);
+
+            queueLabel.Location = new Point(rightX, bottomHeaderTop);
+            label2.Location = new Point(detailsX, bottomHeaderTop);
+
+            queueList.SetBounds(rightX, bottomListTop, queueWidth, bottomListHeight);
+
+            detailsBox.SetBounds(detailsX, bottomListTop, detailsWidth, bottomListHeight);
+            logBox.Bounds = detailsBox.Bounds;
+
+            int buttonRows = (5 + buttonColumns - 1) / buttonColumns;
+            int queueButtonHeight = Math.Min(
+                ScaleValue(50),
+                Math.Max(
+                    ScaleValue(24),
+                    (bottomListHeight - queueButtonGap * (buttonRows - 1)) / buttonRows));
+
+            Button[] queueButtons =
+            {
+                startQueueButton,
+                removeQueueButton,
+                queueUpButton,
+                queueDownButton,
+                clearQueueButton,
+            };
+
+            for (int i = 0; i < queueButtons.Length; i++)
+            {
+                int column = i % buttonColumns;
+                int row = i / buttonColumns;
+
+                queueButtons[i].SetBounds(
+                    queueButtonX + column * (singleButtonWidth + queueButtonGap),
+                    bottomListTop + row * (queueButtonHeight + queueButtonGap),
+                    singleButtonWidth,
+                    queueButtonHeight);
+            }
         }
 
         private void ApplyDarkTitleBar()
