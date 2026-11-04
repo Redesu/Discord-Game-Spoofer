@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace DiscordGameSpoofer.Quests
 {
     /// <summary>
@@ -17,6 +19,7 @@ namespace DiscordGameSpoofer.Quests
         private readonly HashSet<string> _reportedNoTarget = new(StringComparer.Ordinal);
         private readonly Dictionary<string, DateTime> _acceptFailures = new(StringComparer.Ordinal);
         private readonly Dictionary<string, DateTime> _claimFailures = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, DateTime> _progressFailures = new(StringComparer.Ordinal);
 
         private CancellationTokenSource? _cts;
         private Task? _pollTask;
@@ -71,6 +74,7 @@ namespace DiscordGameSpoofer.Quests
                 _reportedNoTarget.Clear();
                 _acceptFailures.Clear();
                 _claimFailures.Clear();
+                _progressFailures.Clear();
                 _running = true;
             }
 
@@ -390,7 +394,10 @@ namespace DiscordGameSpoofer.Quests
             CancellationToken cancellationToken)
         {
             DiscordQuest? quest = quests.FirstOrDefault(
-                q => q.IsActive && !_locallyCompleted.Contains(q.Id) && !_reportedNoTarget.Contains(q.Id));
+                q => q.IsActive
+                    && !_locallyCompleted.Contains(q.Id)
+                    && !_reportedNoTarget.Contains(q.Id)
+                    && !IsProgressCooldown(q.Id));
 
             if (quest == null)
                 return;
@@ -442,8 +449,14 @@ namespace DiscordGameSpoofer.Quests
                 return;
             }
 
-            double watchStart = quest.EnrollmentEpoch;
-            double lastSent = Math.Max(quest.ServerProgressSeconds, quest.LocalProgressSeconds);
+            // Discord only accepts incremental progress: the real desktop client
+            // reports the media timestamp it has reached, roughly every 10 seconds.
+            // Never derive the timestamp from enrolled_at, because a quest accepted
+            // a while ago would jump straight to the target and be rejected (400).
+            double lastSent = Math.Clamp(
+                Math.Floor(Math.Max(quest.ServerProgressSeconds, quest.LocalProgressSeconds)),
+                0,
+                target);
 
             _log($"Watching \"{quest.Name}\" ({FormatDuration(target)}).");
             SetStatus($"Sending progress for \"{quest.Name}\"...");
@@ -456,8 +469,24 @@ namespace DiscordGameSpoofer.Quests
                     break;
                 }
 
-                double elapsed = Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeSeconds() - watchStart);
-                double progress = Math.Min(target, Math.Max(lastSent, elapsed));
+                // Wait before every report, including the first one, so the very
+                // first timestamp is never 0 or a sudden jump to the target.
+                int delayMs = Random.Shared.Next(
+                    Config.videoProgressMinMs,
+                    Config.videoProgressMaxMs + 1);
+
+                try
+                {
+                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                // Whole seconds, like Discord's client. The step is the time spent
+                // since the last accepted report, so progress stays human-like.
+                double progress = Math.Min(target, lastSent + Math.Floor(delayMs / 1000.0));
                 bool sent = false;
 
                 try
@@ -468,6 +497,7 @@ namespace DiscordGameSpoofer.Quests
                     lastSent = progress;
                     quest.LocalProgressSeconds = progress;
                     _localProgress[quest.Id] = progress;
+                    ClearProgressFailure(quest.Id);
                     sent = true;
                 }
                 catch (OperationCanceledException)
@@ -493,11 +523,12 @@ namespace DiscordGameSpoofer.Quests
 
                     continue;
                 }
-                catch (QuestApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+                catch (QuestApiException ex) when (IsTerminalQuestStatus(ex.StatusCode))
                 {
-                    // Discord returns 404 when the quest is not enrolled for this
-                    // user or no longer exists. The next poll will refresh state.
-                    _log($"Discord no longer recognises \"{quest.Name}\" (404). It may have expired or not be enrolled.");
+                    // 400/403/404/409/410 mean Discord will not accept progress for
+                    // this quest, so retrying the same value would loop forever.
+                    RecordProgressFailure(quest.Id);
+                    _log($"Discord rejected video progress for \"{quest.Name}\" ({(int)ex.StatusCode.GetValueOrDefault()} {ex.StatusCode}).{DescribeResponse(ex)} Skipping it for 10 minutes.");
                     break;
                 }
                 catch (Exception ex)
@@ -536,19 +567,6 @@ namespace DiscordGameSpoofer.Quests
                     _localProgress[quest.Id] = target;
 
                     _log($"Reached the video target for \"{quest.Name}\".");
-                    break;
-                }
-
-                int delayMs = Random.Shared.Next(
-                    Config.videoProgressMinMs,
-                    Config.videoProgressMaxMs + 1);
-
-                try
-                {
-                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
                     break;
                 }
             }
@@ -693,6 +711,52 @@ namespace DiscordGameSpoofer.Quests
             catch
             {
             }
+        }
+
+        private bool IsProgressCooldown(string questId)
+        {
+            lock (_sync)
+            {
+                return _progressFailures.TryGetValue(questId, out DateTime failedAt)
+                    && DateTime.UtcNow - failedAt < TimeSpan.FromMinutes(10);
+            }
+        }
+
+        private void RecordProgressFailure(string questId)
+        {
+            lock (_sync)
+            {
+                _progressFailures[questId] = DateTime.UtcNow;
+            }
+        }
+
+        private void ClearProgressFailure(string questId)
+        {
+            lock (_sync)
+            {
+                _progressFailures.Remove(questId);
+            }
+        }
+
+        private static bool IsTerminalQuestStatus(HttpStatusCode? statusCode)
+        {
+            return statusCode is HttpStatusCode.BadRequest
+                or HttpStatusCode.Forbidden
+                or HttpStatusCode.NotFound
+                or HttpStatusCode.Conflict
+                or HttpStatusCode.Gone;
+        }
+
+        private static string DescribeResponse(QuestApiException ex)
+        {
+            if (string.IsNullOrWhiteSpace(ex.ResponseBody))
+                return "";
+
+            string body = ex.ResponseBody.Replace('\r', ' ').Replace('\n', ' ').Trim();
+            if (body.Length > 200)
+                body = body[..200] + "...";
+
+            return $" Response: {body}.";
         }
 
         private static string FormatDuration(long seconds)

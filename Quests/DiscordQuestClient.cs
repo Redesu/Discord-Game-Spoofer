@@ -408,9 +408,13 @@ namespace DiscordGameSpoofer.Quests
 
         public Task SendVideoProgressAsync(string questId, double timestampSeconds, CancellationToken cancellationToken = default)
         {
+            // Discord's client sends whole seconds. Rounding down keeps the value
+            // below the quest target instead of overshooting it.
+            long timestamp = Math.Max(0, (long)Math.Floor(timestampSeconds));
+
             Dictionary<string, object?> body = new Dictionary<string, object?>
             {
-                ["timestamp"] = Math.Round(timestampSeconds, 3),
+                ["timestamp"] = timestamp,
             };
 
             return SendAsync(
